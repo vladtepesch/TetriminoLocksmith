@@ -96,11 +96,11 @@
             <div class="controls-hint">
                 <h3>Steuerung:</h3>
                 <p><span class="key">←</span> <span class="key">→</span> : Bewegen</p>
-                <p><span class="key">↑</span> : Rotieren</p>
+                <p><span class="key">↑</span> : 4-Wege-Rotation</p>
                 <p><span class="key">↓</span> : Sanfter Fall</p>
                 <p><span class="key">Space</span> : Hard Drop</p>
                 <hr style="border: 0; border-top: 1px solid #444; margin: 10px 0;">
-                <p style="font-size: 10px; color: #f2d984;">💡 <b>Regel:</b> Schwarz zeigt immer nach unten. Blau dreht sich mit und färbt in seine Blickrichtung!</p>
+                <p style="font-size: 10px; color: #f2d984;">💡 <b>Regel:</b> Schwarz zeigt nach unten. Blau dreht sich mit. Reihen- & Kaskaden-Fade-Animationen aktiv!</p>
             </div>
         </div>
     </div>
@@ -119,11 +119,11 @@ const COLOR_PASTEL_RED = '#ff8b94';
 const COLOR_PASTEL_YELLOW = '#f2d984';
 
 let score = 0;
-let currentLevel = 1;
+let level = 1;
 let gameOver = false;
 
 let grid = Array.from({ length: ROWS }, () => 
-    Array.from({ length: COLS }, () => ({ filled: false, isYellow: false, hasPointer: false, pointerType: 'black', opacity: 1, initialDir: 1 }))
+    Array.from({ length: COLS }, () => ({ filled: false, isYellow: false, hasPointer: false, pointerType: 'black', initialDir: 1, opacity: 1 }))
 );
 
 const SHAPES = {
@@ -159,17 +159,10 @@ const SHAPES = {
     ],
     T: [
         [0,1,0],
-        [1,1,0],
-        [0,0,0] // corrected standard T setup matrix later dynamically or handle symmetrically
+        [1,1,1],
+        [0,0,0]
     ]
 };
-
-// Precise standard SRS or custom safe shapes setup
-SHAPES.T = [
-    [0,1,0],
-    [1,1,1],
-    [0,0,0]
-];
 
 let currentPiece = null;
 let nextPiece = null;
@@ -177,10 +170,12 @@ let nextPiece = null;
 let animX = 0;
 let animY = 0;
 let visualRotationOffset = 0;
-let fadeAnimationActive = false;
+let animationState = 'playing'; // 'playing', 'fading', 'gravitating'
 let isHardDropping = false;
 
-let comboMessage = "";
+// Kaskaden und Combo-Einblendung
+let cascadeLevel = 1;
+let comboText = "";
 let comboTimer = 0;
 
 function createPieceData(type) {
@@ -188,11 +183,12 @@ function createPieceData(type) {
     return shapeMatrix.map(row => 
         row.map(val => {
             if (val === 1) {
+                let r = Math.random();
                 return { 
                     active: 1, 
-                    hasPointer: Math.random() < 0.35,
+                    hasPointer: r < 0.35,
                     pointerType: Math.random() < 0.15 ? 'blue' : 'black',
-                    initialDir: 1 // 0: Oben, 1: Unten, 2: Links, 3: Rechts
+                    initialDir: 1 // 0:O, 1:U, 2:L, 3:R (Startet nach unten)
                 };
             }
             return { active: 0, hasPointer: false, pointerType: 'black', initialDir: 1 };
@@ -202,6 +198,7 @@ function createPieceData(type) {
 
 function spawnPiece() {
     isHardDropping = false;
+    animationState = 'playing';
     
     if (!nextPiece) {
         const keys = Object.keys(SHAPES);
@@ -213,8 +210,7 @@ function spawnPiece() {
         type: nextPiece.type,
         matrix: nextPiece.matrix,
         x: Math.floor((COLS - nextPiece.matrix.length) / 2),
-        y: nextPiece.type === 'I' ? -1 : 0,
-        stateI: 0 // 0: horizontal, 1: vertikal
+        y: nextPiece.type === 'I' ? -1 : 0
     };
 
     const keys = Object.keys(SHAPES);
@@ -225,10 +221,8 @@ function spawnPiece() {
     if (!hasAnyPointer) {
         let validBlocks = [];
         currentPiece.matrix.forEach((row, r) => row.forEach((b, c) => { if(b.active) validBlocks.push({r,c}); }));
-        if(validBlocks.length > 0) {
-            let pick = validBlocks[Math.floor(Math.random() * validBlocks.length)];
-            currentPiece.matrix[pick.r][pick.c].hasPointer = true;
-        }
+        let pick = validBlocks[Math.floor(Math.random() * validBlocks.length)];
+        currentPiece.matrix[pick.r][pick.c].hasPointer = true;
     }
 
     animX = currentPiece.x;
@@ -263,7 +257,7 @@ function rotateMatrixClockwise(matrix) {
         for (let c = 0; c < n; c++) {
             newMatrix[c][n - 1 - r] = { ...matrix[r][c] };
             if (newMatrix[c][n - 1 - r].hasPointer && newMatrix[c][n - 1 - r].pointerType === 'blue') {
-                let dirs = [3, 2, 0, 1]; // 0->3, 1->2, 2->0, 3->1
+                let dirs = [3, 2, 0, 1]; // O->R (3), U->L (2), L->O (0), R->U (1)
                 newMatrix[c][n - 1 - r].initialDir = dirs[matrix[r][c].initialDir];
             }
         }
@@ -272,111 +266,55 @@ function rotateMatrixClockwise(matrix) {
 }
 
 function rotatePiece() {
-    if (!currentPiece || fadeAnimationActive || isHardDropping) return;
+    if (!currentPiece || animationState !== 'playing' || isHardDropping) return;
 
-    let nextMatrix;
-    if (currentPiece.type === 'I') {
-        // Absolute precision 2-state flop matrix for I-piece to strictly prevent column switching
-        if (currentPiece.stateI === 0) {
-            nextMatrix = [
-                [0,1,0,0],
-                [0,1,0,0],
-                [0,1,0,0],
-                [0,1,0,0]
-            ];
-            // Transfer properties
-            let flatProps = [];
-            currentPiece.matrix.forEach(row => row.forEach(b => { if(b.active) flatProps.push(b); }));
-            let idx = 0;
-            for(let r=0; r<4; r++) {
-                for(let c=0; c<4; c++) {
-                    if(nextMatrix[r][c] === 1) {
-                        let prop = flatProps[idx++] || { hasPointer: false, pointerType: 'black', initialDir: 1 };
-                        nextMatrix[r][c] = { active: 1, ...prop };
-                        if (nextMatrix[r][c].hasPointer && nextMatrix[r][c].pointerType === 'blue') {
-                            let dirs = [3, 2, 0, 1];
-                            nextMatrix[r][c].initialDir = dirs[nextMatrix[r][c].initialDir];
-                        }
-                    } else {
-                        nextMatrix[r][c] = { active: 0, hasPointer: false, pointerType: 'black', initialDir: 1 };
-                    }
-                }
-            }
-            if (!checkCollision(currentPiece.x, currentPiece.y, nextMatrix)) {
-                currentPiece.matrix = nextMatrix;
-                currentPiece.stateI = 1;
-                visualRotationOffset -= Math.PI / 2;
-            }
-        } else {
-            nextMatrix = [
-                [0,0,0,0],
-                [1,1,1,1],
-                [0,0,0,0],
-                [0,0,0,0]
-            ];
-            let flatProps = [];
-            currentPiece.matrix.forEach(row => row.forEach(b => { if(b.active) flatProps.push(b); }));
-            let idx = 0;
-            for(let r=0; r<4; r++) {
-                for(let c=0; c<4; c++) {
-                    if(nextMatrix[r][c] === 1) {
-                        let prop = flatProps[idx++] || { hasPointer: false, pointerType: 'black', initialDir: 1 };
-                        nextMatrix[r][c] = { active: 1, ...prop };
-                        if (nextMatrix[r][c].hasPointer && nextMatrix[r][c].pointerType === 'blue') {
-                            let dirs = [3, 2, 0, 1];
-                            nextMatrix[r][c].initialDir = dirs[nextMatrix[r][c].initialDir];
-                        }
-                    } else {
-                        nextMatrix[r][c] = { active: 0, hasPointer: false, pointerType: 'black', initialDir: 1 };
-                    }
-                }
-            }
-            if (!checkCollision(currentPiece.x, currentPiece.y, nextMatrix)) {
-                currentPiece.matrix = nextMatrix;
-                currentPiece.stateI = 0;
-                visualRotationOffset -= Math.PI / 2;
-            }
-        }
-    } else {
-        nextMatrix = rotateMatrixClockwise(currentPiece.matrix);
-        if (!checkCollision(currentPiece.x, currentPiece.y, nextMatrix)) {
+    let nextMatrix = rotateMatrixClockwise(currentPiece.matrix);
+    
+    // Einfaches SRS Wall-Kick-System (Prüft Ursprung, links, rechts auf Platz)
+    let kicks = [0, -1, 1];
+    if (currentPiece.type === 'I') kicks = [0, -1, 1, -2, 2];
+
+    for (let dx of kicks) {
+        if (!checkCollision(currentPiece.x + dx, currentPiece.y, nextMatrix)) {
             currentPiece.matrix = nextMatrix;
+            currentPiece.x += dx;
             visualRotationOffset -= Math.PI / 2;
+            break;
         }
     }
 }
 
 function moveLeft() {
-    if (currentPiece && !checkCollision(currentPiece.x - 1, currentPiece.y, currentPiece.matrix) && !fadeAnimationActive && !isHardDropping) {
+    if (currentPiece && !checkCollision(currentPiece.x - 1, currentPiece.y, currentPiece.matrix) && animationState === 'playing' && !isHardDropping) {
         currentPiece.x--;
     }
 }
 
 function moveRight() {
-    if (currentPiece && !checkCollision(currentPiece.x + 1, currentPiece.y, currentPiece.matrix) && !fadeAnimationActive && !isHardDropping) {
+    if (currentPiece && !checkCollision(currentPiece.x + 1, currentPiece.y, currentPiece.matrix) && animationState === 'playing' && !isHardDropping) {
         currentPiece.x++;
     }
 }
 
 function dropPiece() {
-    if (gameOver || fadeAnimationActive || !currentPiece) return;
+    if (gameOver || animationState !== 'playing' || !currentPiece) return;
 
     if (!checkCollision(currentPiece.x, currentPiece.y + 1, currentPiece.matrix)) {
         currentPiece.y++;
     } else {
         lockPiece();
-        // Calculate all cascades synchronously in a single process step to prevent visual phantom rows glitch
-        processCascadesAndScoring();
+        cascadeLevel = 1;
+        applyKeyMechanic();
+        processMatchSequence();
     }
 }
 
 function startHardDrop() {
-    if (gameOver || fadeAnimationActive || !currentPiece || isHardDropping) return;
+    if (gameOver || animationState !== 'playing' || !currentPiece || isHardDropping) return;
     isHardDropping = true;
 }
 
 function lockPiece() {
-    let pieceBlocksCount = 0;
     for (let r = 0; r < currentPiece.matrix.length; r++) {
         for (let c = 0; c < currentPiece.matrix[r].length; c++) {
             if (currentPiece.matrix[r][c].active) {
@@ -391,17 +329,23 @@ function lockPiece() {
                         initialDir: currentPiece.matrix[r][c].initialDir,
                         opacity: 1
                     };
-                    pieceBlocksCount++;
                 }
             }
         }
     }
-    // Each placed piece grants 1 point
     score += 1;
     updateLevel();
     document.getElementById('score').innerText = score;
     currentPiece = null;
     isHardDropping = false;
+}
+
+function updateLevel() {
+    let newLevel = Math.floor(score / 5000) + 1;
+    if (newLevel !== level) {
+        level = newLevel;
+        document.getElementById('level').innerText = level;
+    }
 }
 
 function isFallingBlockYellowRealtime(gridX, gridY) {
@@ -473,129 +417,177 @@ function applyKeyMechanic() {
     }
 }
 
-function processCascadesAndScoring() {
-    let cascadeMultiplier = 1;
-    let chainActive = true;
+function processMatchSequence() {
+    let toRemove = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
+    let matchFound = false;
+    let totalRemoved = 0;
 
-    while (chainActive) {
-        applyKeyMechanic();
-        
-        let toRemove = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
-        let matchFound = false;
-        let totalRemovedThisWave = 0;
+    for (let r = 0; r < ROWS; r++) {
+        let matchCount = 0;
+        let matchStartIndex = -1;
 
-        for (let r = 0; r < ROWS; r++) {
-            let matchCount = 0;
-            let matchStartIndex = -1;
-
-            for (let c = 0; c < COLS; c++) {
-                if (grid[r][c].filled && grid[r][c].isYellow) {
-                    if (matchCount === 0) matchStartIndex = c;
-                    matchCount++;
-                } else {
-                    if (matchCount >= 3) {
-                        for (let m = matchStartIndex; m < c; m++) {
-                            if (!toRemove[r][m]) {
-                                toRemove[r][m] = true;
-                                totalRemovedThisWave++;
-                            }
-                        }
-                        matchFound = true;
-                    }
-                    matchCount = 0;
+        for (let c = 0; c < COLS; c++) {
+            if (grid[r][c].filled && grid[r][c].isYellow) {
+                if (matchCount === 0) matchStartIndex = c;
+                matchCount++;
+            } else {
+                if (matchCount >= 3) {
+                    for (let m = matchStartIndex; m < c; m++) { toRemove[r][m] = true; totalRemoved++; }
+                    matchFound = true;
                 }
-            }
-            if (matchCount >= 3) {
-                for (let m = matchStartIndex; m < COLS; m++) {
-                    if (!toRemove[r][m]) {
-                        toRemove[r][m] = true;
-                        totalRemovedThisWave++;
-                    }
-                }
-                matchFound = true;
+                matchCount = 0;
             }
         }
-
-        if (matchFound && totalRemovedThisWave > 0) {
-            // New dynamic formula: (10 + 10 * block) * cascadeMultiplier
-            let wavePoints = (10 + 10 * totalRemovedThisWave) * cascadeMultiplier;
-            score += wavePoints;
-            
-            if (cascadeMultiplier > 1) {
-                comboMessage = `Kombination x${cascadeMultiplier}! +${wavePoints}`;
-                comboTimer = 90; // display duration frames
-            }
-
-            // Clean up cleared blocks instantly
-            for (let r = 0; r < ROWS; r++) {
-                for (let c = 0; c < COLS; c++) {
-                    if (toRemove[r][c]) {
-                        grid[r][c] = { filled: false, isYellow: false, hasPointer: false, pointerType: 'black', opacity: 1, initialDir: 1 };
-                    }
-                }
-            }
-
-            applyGravity();
-            cascadeMultiplier++;
-        } else {
-            chainActive = false;
+        if (matchCount >= 3) {
+            for (let m = matchStartIndex; m < COLS; m++) { toRemove[r][m] = true; totalRemoved++; }
+            matchFound = true;
         }
     }
 
-    updateLevel();
-    if (!currentPiece && !gameOver) spawnPiece();
+    if (matchFound) {
+        animationState = 'fading';
+        let earnedPoints = (10 + 10 * totalRemoved) * cascadeLevel;
+        score += earnedPoints;
+        updateLevel();
+        document.getElementById('score').innerText = score;
+
+        if (cascadeLevel > 1) {
+            comboText = `Combo x${cascadeLevel}! +${earnedPoints}`;
+        } else {
+            comboText = `Match! +${earnedPoints}`;
+        }
+        comboTimer = 60;
+
+        startFadeAnimation(toRemove);
+    } else {
+        if (!gameOver) spawnPiece();
+    }
 
     let yellowTotal = 0;
     grid.forEach(row => row.forEach(b => { if(b.isYellow) yellowTotal++; }));
     document.getElementById('yellow-count').innerText = yellowTotal;
 }
 
-function updateLevel() {
-    // Level target scaled down symmetrically to 500 points per level to respect localized micro-scoring steps
-    let targetLevel = Math.floor(score / 500) + 1;
-    if (targetLevel !== currentLevel) {
-        currentLevel = targetLevel;
-        document.getElementById('level').innerText = currentLevel;
-    }
-}
+function startFadeAnimation(toRemove) {
+    let currentStep = 0;
+    const steps = 10;
 
-function applyGravity() {
-    for (let c = 0; c < COLS; c++) {
-        for (let r = ROWS - 1; r >= 0; r--) {
-            if (!grid[r][c].filled) {
-                for (let kr = r - 1; kr >= 0; kr--) {
-                    if (grid[kr][c].filled) {
-                        grid[r][c] = { ...grid[kr][c] }; // Deep independent cell separation
-                        grid[kr][c] = { filled: false, isYellow: false, hasPointer: false, pointerType: 'black', opacity: 1, initialDir: 1 };
-                        break;
-                    }
+    function fadeStep() {
+        currentStep++;
+        for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+                if (toRemove[r][c]) {
+                    grid[r][c].opacity = 1 - (currentStep / steps);
                 }
             }
         }
+
+        if (currentStep < steps) {
+            setTimeout(fadeStep, 30);
+        } else {
+            // Aus dem Spielfeld löschen
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    if (toRemove[r][c]) {
+                        grid[r][c] = { filled: false, isYellow: false, hasPointer: false, pointerType: 'black', initialDir: 1, opacity: 1 };
+                    }
+                }
+            }
+            startGravityAnimation();
+        }
     }
+    fadeStep();
 }
 
-function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+function startGravityAnimation() {
+    animationState = 'gravitating';
+    let movements = [];
 
+    // Errechnen, welche Blöcke wie weit fallen müssen
+    for (let c = 0; c < COLS; c++) {
+        let emptyCount = 0;
+        for (let r = ROWS - 1; r >= 0; r--) {
+            if (!grid[r][c].filled) {
+                emptyCount++;
+            } else if (emptyCount > 0) {
+                movements.push({
+                    fromR: r,
+                    toR: r + emptyCount,
+                    col: c,
+                    cellData: JSON.parse(JSON.stringify(grid[r][c])),
+                    visualY: r * BLOCK_SIZE,
+                    targetY: (r + emptyCount) * BLOCK_SIZE
+                });
+                grid[r][c] = { filled: false, isYellow: false, hasPointer: false, pointerType: 'black', initialDir: 1, opacity: 1 };
+            }
+        }
+    }
+
+    if (movements.length === 0) {
+        cascadeLevel++;
+        applyKeyMechanic();
+        processMatchSequence();
+        return;
+    }
+
+    function animateGravity() {
+        let allDone = true;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawGridBase();
+        drawStaticGrid();
+
+        for (let m of movements) {
+            if (m.visualY < m.targetY) {
+                m.visualY += 6; // Fallgeschwindigkeit im Kaskaden-Modus
+                if (m.visualY > m.targetY) m.visualY = m.targetY;
+                allDone = false;
+            }
+            
+            let color = m.cellData.isYellow ? COLOR_PASTEL_YELLOW : COLOR_PASTEL_RED;
+            let staticRot = 0;
+            if (m.cellData.pointerType === 'blue') {
+                if (m.cellData.initialDir === 0) staticRot = Math.PI;
+                if (m.cellData.initialDir === 1) staticRot = 0;
+                if (m.cellData.initialDir === 2) staticRot = Math.PI / 2;
+                if (m.cellData.initialDir === 3) staticRot = -Math.PI / 2;
+            }
+            drawLocksmithBlockPixel(m.col * BLOCK_SIZE, m.visualY, color, m.cellData.hasPointer, m.cellData.pointerType, staticRot);
+        }
+
+        if (comboTimer > 0) { drawComboText(); comboTimer--; }
+
+        if (!allDone) {
+            requestAnimationFrame(animateGravity);
+        } else {
+            // Nach dem Fallen wieder fest ins Gitter schreiben
+            for (let m of movements) {
+                grid[m.toR][m.col] = m.cellData;
+            }
+            cascadeLevel++;
+            applyKeyMechanic();
+            processMatchSequence();
+        }
+    }
+    animateGravity();
+}
+
+function drawGridBase() {
     ctx.strokeStyle = '#34495e';
     ctx.lineWidth = 1;
     for (let r = 0; r <= ROWS; r++) {
-        ctx.beginPath(); ctx.moveTo(0, r * BLOCK_SIZE); ctx.lineTo(canvas.width, r * BLOCK_SIZE); stroke();
+        ctx.beginPath(); ctx.moveTo(0, r * BLOCK_SIZE); ctx.lineTo(canvas.width, r * BLOCK_SIZE); ctx.stroke();
     }
     for (let c = 0; c <= COLS; c++) {
-        ctx.beginPath(); ctx.moveTo(c * BLOCK_SIZE, 0); ctx.lineTo(c * BLOCK_SIZE, canvas.height); stroke();
+        ctx.beginPath(); ctx.moveTo(c * BLOCK_SIZE, 0); ctx.lineTo(c * BLOCK_SIZE, canvas.height); ctx.stroke();
     }
+}
 
-    // Workaround for undefined stroke within raw code structure
-    function stroke() { ctx.stroke(); }
-
+function drawStaticGrid() {
     for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
             if (grid[r][c].filled) {
                 ctx.globalAlpha = grid[r][c].opacity;
                 let color = grid[r][c].isYellow ? COLOR_PASTEL_YELLOW : COLOR_PASTEL_RED;
-                
                 let staticRot = 0; 
                 if (grid[r][c].pointerType === 'blue') {
                     if (grid[r][c].initialDir === 0) staticRot = Math.PI;
@@ -603,13 +595,31 @@ function draw() {
                     if (grid[r][c].initialDir === 2) staticRot = Math.PI / 2;
                     if (grid[r][c].initialDir === 3) staticRot = -Math.PI / 2;
                 }
-                drawLocksmithBlock(ctx, c, r, color, grid[r][c].hasPointer, grid[r][c].pointerType, staticRot);
+                drawLocksmithBlock(c, r, color, grid[r][c].hasPointer, grid[r][c].pointerType, staticRot);
             }
         }
     }
     ctx.globalAlpha = 1.0;
+}
 
-    if (currentPiece && !fadeAnimationActive) {
+function drawComboText() {
+    ctx.fillStyle = '#f2d984';
+    ctx.font = 'bold 22px Segoe UI';
+    ctx.textAlign = 'center';
+    ctx.shadowColor = 'black';
+    ctx.shadowBlur = 4;
+    ctx.fillText(comboText, canvas.width / 2, 80);
+    ctx.shadowBlur = 0; // reset
+}
+
+function draw() {
+    if (animationState === 'gravitating') return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawGridBase();
+    drawStaticGrid();
+
+    if (currentPiece && animationState === 'playing') {
         animX += (currentPiece.x - animX) * 0.3;
         animY += (currentPiece.y - animY) * 0.4;
         visualRotationOffset += (0 - visualRotationOffset) * 0.25;
@@ -639,20 +649,14 @@ function draw() {
                         if (currentPiece.matrix[r][c].initialDir === 3) keyRot -= Math.PI / 2;
                     }
 
-                    drawLocksmithBlock(ctx, drawX, drawY, color, currentPiece.matrix[r][c].hasPointer, currentPiece.matrix[r][c].pointerType, keyRot);
+                    drawLocksmithBlock(drawX, drawY, color, currentPiece.matrix[r][c].hasPointer, currentPiece.matrix[r][c].pointerType, keyRot);
                 }
             }
         }
         ctx.restore();
     }
 
-    if (comboTimer > 0) {
-        ctx.fillStyle = '#f2d984';
-        ctx.font = 'bold 20px Segoe UI';
-        ctx.textAlign = 'center';
-        ctx.fillText(comboMessage, canvas.width / 2, 40);
-        comboTimer--;
-    }
+    if (comboTimer > 0) { drawComboText(); comboTimer--; }
 
     if (gameOver) {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
@@ -674,16 +678,27 @@ function drawNext() {
     for (let r = 0; r < size; r++) {
         for (let c = 0; c < size; c++) {
             if (nextPiece.matrix[r][c].active) {
-                drawLocksmithBlock(nextCtx, c, r, COLOR_PASTEL_RED, nextPiece.matrix[r][c].hasPointer, nextPiece.matrix[r][c].pointerType, 0, offset);
+                drawLocksmithBlockWithCtx(nextCtx, c, r, COLOR_PASTEL_RED, nextPiece.matrix[r][c].hasPointer, nextPiece.matrix[r][c].pointerType, 0, offset);
             }
         }
     }
 }
 
-function drawLocksmithBlock(context, x, y, color, hasPointer, pointerType, keyRotation, pixelOffset = 0) {
+function drawLocksmithBlock(x, y, color, hasPointer, pointerType, keyRotation) {
+    drawLocksmithBlockWithCtx(ctx, x, y, color, hasPointer, pointerType, keyRotation, 0);
+}
+
+function drawLocksmithBlockWithCtx(context, x, y, color, hasPointer, pointerType, keyRotation, pixelOffset) {
     let px = x * BLOCK_SIZE + pixelOffset;
     let py = y * BLOCK_SIZE + pixelOffset;
+    drawLocksmithBlockPixelWithCtx(context, px, py, color, hasPointer, pointerType, keyRotation);
+}
 
+function drawLocksmithBlockPixel(px, py, color, hasPointer, pointerType, keyRotation) {
+    drawLocksmithBlockPixelWithCtx(ctx, px, py, color, hasPointer, pointerType, keyRotation);
+}
+
+function drawLocksmithBlockPixelWithCtx(context, px, py, color, hasPointer, pointerType, keyRotation) {
     context.fillStyle = color;
     context.fillRect(px, py, BLOCK_SIZE, BLOCK_SIZE);
 
@@ -716,14 +731,15 @@ let lastDropTime = Date.now();
 
 function gameLoop() {
     let now = Date.now();
-    // Base drop intervals decrease linearly per level
-    let dynamicInterval = Math.max(100, 1000 - (currentLevel - 1) * 150);
-    
-    if (isHardDropping) {
-        dropPiece();
-    } else if (now - lastDropTime > dynamicInterval) {
-        dropPiece();
-        lastDropTime = now;
+    let speed = Math.max(100, 1000 - (level - 1) * 150); // Level-Geschwindigkeit berechnen
+
+    if (animationState === 'playing') {
+        if (isHardDropping) {
+            dropPiece();
+        } else if (now - lastDropTime > speed) {
+            dropPiece();
+            lastDropTime = now;
+        }
     }
     
     draw();
@@ -731,18 +747,13 @@ function gameLoop() {
 }
 
 window.addEventListener('keydown', e => {
-    if (gameOver || fadeAnimationActive) return;
+    if (gameOver || animationState !== 'playing') return;
     
     if (e.key === 'ArrowLeft') moveLeft();
     if (e.key === 'ArrowRight') moveRight();
     if (e.key === 'ArrowUp') rotatePiece();
-    if (e.key === 'ArrowDown') {
-        dropPiece();
-    }
-    if (e.key === ' ') {
-        e.preventDefault();
-        startHardDrop();
-    }
+    if (e.key === 'ArrowDown') { dropPiece(); }
+    if (e.key === ' ') { e.preventDefault(); startHardDrop(); }
 });
 
 spawnPiece();
