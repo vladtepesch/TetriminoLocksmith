@@ -83,7 +83,7 @@
                 <p><span class="key">↑</span> : Rotieren</p>
                 <p><span class="key">↓</span> : Schneller Fall</p>
                 <hr style="border: 0; border-top: 1px solid #444; margin: 10px 0;">
-                <p style="font-size: 11px; color: #f2d984;">💡 <b>Regel:</b> Mindestens 3 nebeneinanderliegende gelbe Blöcke lösen sich auf!</p>
+                <p style="font-size: 11px; color: #f2d984;">💡 <b>Regel:</b> 3 nebeneinanderliegende gelbe Blöcke lösen sich auf!</p>
             </div>
         </div>
     </div>
@@ -96,37 +96,49 @@ const ROWS = 20;
 const COLS = 10;
 const BLOCK_SIZE = 30;
 
-// Farb-Konstanten für das gesamte Spiel
-const COLOR_PASTEL_RED = '#ff8b94';   // Für inaktive / normale Blöcke
-const COLOR_PASTEL_YELLOW = '#f2d984';// Für aktivierte gelbe Blöcke
+// Farb-Konstanten wie gewünscht
+const COLOR_PASTEL_RED = '#ff8b94';
+const COLOR_PASTEL_YELLOW = '#f2d984';
 
 let score = 0;
 let gameOver = false;
 
-// Spielfeld-Matrix
+// Grid-Zustand
 let grid = Array.from({ length: ROWS }, () => 
-    Array.from({ length: COLS }, () => ({ filled: false, isYellow: false, hasPointer: false }))
+    Array.from({ length: COLS }, () => ({ filled: false, isYellow: false, hasPointer: false, opacity: 1 }))
 );
 
-// Die 7 klassischen Tetris-Formen (Tetriminos)
+// Tetrimino Definitionen
 const SHAPES = {
-    I: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
-    J: [[1,0,0],[1,1,1],[0,0,0]],
-    L: [[0,0,1],[1,1,1],[0,0,0]],
+    I: [[1,1,1,1]],
+    J: [[1,0,0],[1,1,1]],
+    L: [[0,0,1],[1,1,1]],
     O: [[1,1],[1,1]],
-    S: [[0,1,1],[1,1,0],[0,0,0]],
-    Z: [[1,1,0],[0,1,1],[0,0,0]],
-    T: [[0,1,0],[1,1,1],[0,0,0]]
+    S: [[0,1,1],[1,1,0]],
+    Z: [[1,1,0],[0,1,1]],
+    T: [[0,1,0],[1,1,1]]
 };
 
-let currentPiece = null;
+// Animations- und Bewegungs-Zustand des aktiven Steins
+let currentPiece = {
+    type: '',
+    matrix: [],
+    x: 0, // Ziel-Raster X
+    y: 0, // Ziel-Raster Y
+    visualX: 0, // Animierte X-Position
+    visualY: 0, // Animierte Y-Position
+    visualAngle: 0, // Animierter Rotationswinkel
+    targetAngle: 0   // Ziel-Rotationswinkel
+};
+
+let vanishingBlocks = []; // Liste für Blöcke, die gerade verschwinden
 
 function spawnPiece() {
+    if (gameOver) return;
     const keys = Object.keys(SHAPES);
     const type = keys[Math.floor(Math.random() * keys.length)];
     const shapeMatrix = SHAPES[type];
     
-    // Matrix kopieren und Schlüsselbart-Daten hinzufügen
     const matrix = shapeMatrix.map(row => 
         row.map(val => {
             if (val === 1) {
@@ -136,7 +148,7 @@ function spawnPiece() {
         })
     );
 
-    // Sicherstellen, dass mindestens ein Zeiger existiert
+    // Mindestens einen Zeiger garantieren
     let hasAnyPointer = matrix.some(row => row.some(b => b.hasPointer));
     if (!hasAnyPointer) {
         let validBlocks = [];
@@ -145,12 +157,14 @@ function spawnPiece() {
         matrix[pick.r][pick.c].hasPointer = true;
     }
 
-    currentPiece = {
-        type: type,
-        matrix: matrix,
-        x: Math.floor((COLS - matrix.length) / 2),
-        y: 0
-    };
+    currentPiece.type = type;
+    currentPiece.matrix = matrix;
+    currentPiece.x = Math.floor((COLS - matrix[0].length) / 2);
+    currentPiece.y = 0;
+    currentPiece.visualX = currentPiece.x;
+    currentPiece.visualY = currentPiece.y;
+    currentPiece.visualAngle = 0;
+    currentPiece.targetAngle = 0;
 
     if (checkCollision(currentPiece.x, currentPiece.y, currentPiece.matrix)) {
         gameOver = true;
@@ -172,45 +186,46 @@ function checkCollision(ax, ay, matrix) {
 }
 
 function rotateMatrix(matrix) {
-    const n = matrix.length;
-    let newMatrix = Array.from({ length: n }, () => Array(n).fill(null));
-    for (let r = 0; r < n; r++) {
-        for (let c = 0; c < n; c++) {
-            newMatrix[c][n - 1 - r] = matrix[r][c];
+    const rLen = matrix.length;
+    const cLen = matrix[0].length;
+    let newMatrix = Array.from({ length: cLen }, () => Array(rLen).fill(null));
+    for (let r = 0; r < rLen; r++) {
+        for (let c = 0; c < cLen; c++) {
+            newMatrix[c][rLen - 1 - r] = matrix[r][c];
         }
     }
     return newMatrix;
 }
 
 function rotatePiece() {
-    if (!currentPiece) return;
+    if (vanishingBlocks.length > 0 || gameOver) return;
     const nextMatrix = rotateMatrix(currentPiece.matrix);
     if (!checkCollision(currentPiece.x, currentPiece.y, nextMatrix)) {
         currentPiece.matrix = nextMatrix;
+        currentPiece.targetAngle += Math.PI / 2;
     }
 }
 
 function moveLeft() {
-    if (currentPiece && !checkCollision(currentPiece.x - 1, currentPiece.y, currentPiece.matrix)) {
+    if (vanishingBlocks.length > 0 || gameOver) return;
+    if (!checkCollision(currentPiece.x - 1, currentPiece.y, currentPiece.matrix)) {
         currentPiece.x--;
     }
 }
 
 function moveRight() {
-    if (currentPiece && !checkCollision(currentPiece.x + 1, currentPiece.y, currentPiece.matrix)) {
+    if (vanishingBlocks.length > 0 || gameOver) return;
+    if (!checkCollision(currentPiece.x + 1, currentPiece.y, currentPiece.matrix)) {
         currentPiece.x++;
     }
 }
 
 function dropPiece() {
-    if (gameOver) return;
-    if (!currentPiece) return;
-
+    if (vanishingBlocks.length > 0 || gameOver) return;
     if (!checkCollision(currentPiece.x, currentPiece.y + 1, currentPiece.matrix)) {
         currentPiece.y++;
     } else {
         lockPiece();
-        applyKeyMechanic();
         checkMatch3Yellow();
         spawnPiece();
     }
@@ -220,13 +235,15 @@ function lockPiece() {
     for (let r = 0; r < currentPiece.matrix.length; r++) {
         for (let c = 0; c < currentPiece.matrix[r].length; c++) {
             if (currentPiece.matrix[r][c].active) {
-                let targetX = currentPiece.x + c;
-                let targetY = currentPiece.y + r;
-                if (targetY >= 0) {
-                    grid[targetY][targetX] = {
+                let tx = currentPiece.x + c;
+                let ty = currentPiece.y + r;
+                if (ty >= 0 && ty < ROWS && tx >= 0 && tx < COLS) {
+                    let isYellow = isFallingBlockYellow(r, c);
+                    grid[ty][tx] = {
                         filled: true,
-                        isYellow: false,
-                        hasPointer: currentPiece.matrix[r][c].hasPointer
+                        isYellow: isYellow,
+                        hasPointer: currentPiece.matrix[r][c].hasPointer,
+                        opacity: 1
                     };
                 }
             }
@@ -234,17 +251,23 @@ function lockPiece() {
     }
 }
 
-function applyKeyMechanic() {
-    for (let r = 0; r < ROWS; r++) {
-        for (let c = 0; c < COLS; c++) {
-            if (grid[r][c].filled && grid[r][c].hasPointer) {
-                let targetY = r + 1;
-                if (targetY < ROWS && grid[targetY][c].filled) {
-                    grid[targetY][c].isYellow = true;
-                }
-            }
-        }
+// Prüft live, ob ein Block (fallend oder statisch) gelb sein muss
+function isFallingBlockYellow(r, c) {
+    // 1. Hat der Block selbst einen Zeiger auf ein darunterliegendes Feld?
+    if (currentPiece.matrix[r][c].hasPointer) {
+        return false; 
     }
+    // 2. Befindet sich direkt über diesem Block ein Block derselben Spielfigur mit einem Zeiger?
+    if (r > 0 && currentPiece.matrix[r-1][c].active && currentPiece.matrix[r-1][c].hasPointer) {
+        return true;
+    }
+    // 3. Befindet sich im festen Raster direkt über der aktuellen Position dieses Blocks ein Zeiger?
+    let globalX = currentPiece.x + c;
+    let globalY = currentPiece.y + r;
+    if (globalY > 0 && globalY - 1 < ROWS && grid[globalY-1][globalX].filled && grid[globalY-1][globalX].hasPointer) {
+        return true;
+    }
+    return false;
 }
 
 function checkMatch3Yellow() {
@@ -252,49 +275,40 @@ function checkMatch3Yellow() {
     let matchFound = false;
 
     for (let r = 0; r < ROWS; r++) {
-        let matchCount = 0;
-        let matchStartIndex = -1;
-
+        let count = 0;
+        let start = -1;
         for (let c = 0; c < COLS; c++) {
             if (grid[r][c].filled && grid[r][c].isYellow) {
-                if (matchCount === 0) matchStartIndex = c;
-                matchCount++;
+                if (count === 0) start = c;
+                count++;
             } else {
-                if (matchCount >= 3) {
-                    for (let m = matchStartIndex; m < c; m++) toRemove[r][m] = true;
+                if (count >= 3) {
+                    for (let m = start; m < c; m++) toRemove[r][m] = true;
                     matchFound = true;
                 }
-                matchCount = 0;
+                count = 0;
             }
         }
-        if (matchCount >= 3) {
-            for (let m = matchStartIndex; m < COLS; m++) toRemove[r][m] = true;
+        if (count >= 3) {
+            for (let m = start; m < COLS; m++) toRemove[r][m] = true;
             matchFound = true;
         }
     }
 
     if (matchFound) {
-        let removedBlocks = 0;
+        vanishingBlocks = [];
         for (let r = 0; r < ROWS; r++) {
             for (let c = 0; c < COLS; c++) {
                 if (toRemove[r][c]) {
-                    grid[r][c] = { filled: false, isYellow: false, hasPointer: false };
-                    removedBlocks++;
+                    vanishingBlocks.push({ r, c });
                 }
             }
         }
-
-        score += removedBlocks * 50;
-        document.getElementById('score').innerText = score;
-
-        applyGravity();
-        applyKeyMechanic();
-        setTimeout(() => { checkMatch3Yellow(); }, 150);
+    } else {
+        let yellowTotal = 0;
+        grid.forEach(row => row.forEach(b => { if(b.isYellow) yellowTotal++; }));
+        document.getElementById('yellow-count').innerText = yellowTotal;
     }
-
-    let yellowTotal = 0;
-    grid.forEach(row => row.forEach(b => { if(b.isYellow) yellowTotal++; }));
-    document.getElementById('yellow-count').innerText = yellowTotal;
 }
 
 function applyGravity() {
@@ -303,50 +317,85 @@ function applyGravity() {
             if (!grid[r][c].filled) {
                 for (let kr = r - 1; kr >= 0; kr--) {
                     if (grid[kr][c].filled) {
-                        grid[r][c] = grid[kr][c];
-                        grid[kr][c] = { filled: false, isYellow: false, hasPointer: false };
+                        grid[r][c] = { ...grid[kr][c] };
+                        grid[kr][c] = { filled: false, isYellow: false, hasPointer: false, opacity: 1 };
                         break;
                     }
                 }
             }
         }
     }
+    // Nach dem Fallen der Steine Kettenreaktionen und neue Färbungen prüfen
+    recalculateGridYellowState();
 }
 
-// Hilfsfunktion zur Ermittlung, ob ein Block (auch ein fallender) gelb eingefärbt werden muss
-function isBlockYellowVisual(x, y, isStaticGridBlock, blockHasPointer) {
-    // Wenn es ein bereits im Grid festgesetzter Block ist, gilt sein interner Status
-    if (isStaticGridBlock) {
-        return grid[y][x].isYellow;
+function recalculateGridYellowState() {
+    // Setze zuerst alle zurück (Pfeile färben neu)
+    for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+            if (grid[r][c].filled) grid[r][c].isYellow = false;
+        }
     }
-
-    // Für fallende Blöcke: Prüfen, ob direkt über diesem Feld ein fallender Block mit Zeiger existiert
-    if (currentPiece) {
-        // Berechne relative Position im aktuellen Tetrimino
-        let relX = x - currentPiece.x;
-        let relY = y - currentPiece.y;
-        
-        // Prüfe den Block direkt DARÜBER im Tetrimino
-        let checkRelY = relY - 1;
-        if (checkRelY >= 0 && checkRelY < currentPiece.matrix.length && relX >= 0 && relX < currentPiece.matrix[checkRelY].length) {
-            if (currentPiece.matrix[checkRelY][relX].active && currentPiece.matrix[checkRelY][relX].hasPointer) {
-                return true;
+    // Wende Schlüsselmechanik an
+    for (let r = 0; r < ROWS - 1; r++) {
+        for (let c = 0; c < COLS; c++) {
+            if (grid[r][c].filled && grid[r][c].hasPointer && grid[r+1][c].filled) {
+                grid[r+1][c].isYellow = true;
             }
         }
-        
-        // Oder falls der Block bereits auf dem Grid liegt und von einem stationären Zeiger getroffen wird
-        if (y > 0 && grid[y-1][x].filled && grid[y-1][x].hasPointer) {
-            return true;
+    }
+}
+
+// --- RENDER & ANIMATION LOOP ---
+let lastTime = performance.now();
+let dropTimer = 0;
+const dropInterval = 1000;
+
+function updateAndRender(now) {
+    let deltaTime = now - lastTime;
+    lastTime = now;
+
+    if (!gameOver && vanishingBlocks.length === 0) {
+        dropTimer += deltaTime;
+        if (dropTimer >= dropInterval) {
+            dropPiece();
+            dropTimer = 0;
         }
     }
 
-    return false;
-}
+    // --- 1. Animationen berechnen ---
+    // Sanfte Positions-Interpolation (Lerp)
+    currentPiece.visualX += (currentPiece.x - currentPiece.visualX) * 0.25;
+    currentPiece.visualY += (currentPiece.y - currentPiece.visualY) * 0.25;
+    currentPiece.visualAngle += (currentPiece.targetAngle - currentPiece.visualAngle) * 0.25;
 
-function draw() {
+    // Fade-Out Animation für verschwindende Match-3 Reihen
+    if (vanishingBlocks.length > 0) {
+        let allDone = true;
+        vanishingBlocks.forEach(block => {
+            grid[block.r][block.c].opacity -= deltaTime * 0.005; // Schnelles Ausblenden
+            if (grid[block.r][block.c].opacity > 0) {
+                allDone = false;
+            }
+        });
+
+        if (allDone) {
+            score += vanishingBlocks.length * 50;
+            document.getElementById('score').innerText = score;
+            
+            vanishingBlocks.forEach(block => {
+                grid[block.r][block.c] = { filled: false, isYellow: false, hasPointer: false, opacity: 1 };
+            });
+            vanishingBlocks = [];
+            applyGravity();
+            checkMatch3Yellow(); // Erneute Prüfung auf Kaskaden
+        }
+    }
+
+    // --- 2. Zeichnen ---
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Gitterlinien
+    // Rastergitter-Hintergrund
     ctx.strokeStyle = '#1e1e2f';
     ctx.lineWidth = 1;
     for (let r = 0; r <= ROWS; r++) {
@@ -356,32 +405,50 @@ function draw() {
         ctx.beginPath(); ctx.moveTo(c * BLOCK_SIZE, 0); ctx.lineTo(c * BLOCK_SIZE, canvas.height); ctx.stroke();
     }
 
-    // Platziertes Grid zeichnen
+    // Platziertes statisches Grid zeichnen
     for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
             if (grid[r][c].filled) {
-                let isYellow = isBlockYellowVisual(c, r, true, grid[r][c].hasPointer);
-                drawBlock(c, r, grid[r][c].hasPointer, isYellow);
+                ctx.save();
+                ctx.globalAlpha = grid[r][c].opacity;
+                drawBlock(c, r, grid[r][c].isYellow, grid[r][c].hasPointer, false, 0);
+                ctx.restore();
             }
         }
     }
 
-    // Aktives fallendes Tetrimino zeichnen
-    if (currentPiece) {
-        for (let r = 0; r < currentPiece.matrix.length; r++) {
-            for (let c = 0; c < currentPiece.matrix[r].length; c++) {
-                if (currentPiece.matrix[r][c].active) {
-                    let worldX = currentPiece.x + c;
-                    let worldY = currentPiece.y + r;
-                    if (worldX >= 0 && worldX < COLS && worldY >= 0 && worldY < ROWS) {
-                        let isYellow = isBlockYellowVisual(worldX, worldY, false, currentPiece.matrix[r][c].hasPointer);
-                        drawBlock(worldX, worldY, currentPiece.matrix[r][c].hasPointer, isYellow);
-                    }
+    // Aktives fallendes Tetrimino zeichnen (mit Rotations-Zentrum)
+    if (!gameOver && currentPiece.type) {
+        let mat = currentPiece.matrix;
+        let rLen = mat.length;
+        let cLen = mat[0].length;
+        
+        // Mittelpunkt der Matrix für saubere zentrierte Rotation berechnen
+        let cx = currentPiece.visualX + cLen / 2;
+        let cy = currentPiece.visualY + rLen / 2;
+
+        for (let r = 0; r < rLen; r++) {
+            for (let c = 0; c < cLen; c++) {
+                if (mat[r][c].active) {
+                    ctx.save();
+                    // Verschiebe zum Rotationszentrum
+                    ctx.translate(cx * BLOCK_SIZE, cy * BLOCK_SIZE);
+                    ctx.rotate(currentPiece.visualAngle);
+                    
+                    // Zeichne Block relativ zum Rotationszentrum
+                    let bx = (c - cLen / 2);
+                    let by = (r - rLen / 2);
+                    
+                    let isYellow = isFallingBlockYellow(r, c);
+                    // Wir übergeben true für 'isFalling', um das Schlüsselloch an der Welt-Unterseite zu fixieren
+                    drawBlock(bx, by, isYellow, mat[r][c].hasPointer, true, currentPiece.visualAngle);
+                    ctx.restore();
                 }
             }
         }
     }
 
+    // Game Over Overlay
     if (gameOver) {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -390,51 +457,59 @@ function draw() {
         ctx.textAlign = 'center';
         ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2);
     }
+
+    requestAnimationFrame(updateAndRender);
 }
 
-function drawBlock(x, y, hasPointer, isYellow) {
-    let px = x * BLOCK_SIZE;
-    let py = y * BLOCK_SIZE;
+// Hilfsfunktion zum Rendern eines einzelnen Blocks inklusive modernem Schlüsselloch
+function drawBlock(x, y, isYellow, hasPointer, isFalling, currentAngle) {
+    let px = isFalling ? (x * BLOCK_SIZE) : (x * BLOCK_SIZE);
+    let py = isFalling ? (y * BLOCK_SIZE) : (y * BLOCK_SIZE);
 
-    // Nutzt die definierten Konstanten für die Farbgebung
     ctx.fillStyle = isYellow ? COLOR_PASTEL_YELLOW : COLOR_PASTEL_RED;
     ctx.fillRect(px, py, BLOCK_SIZE, BLOCK_SIZE);
 
-    // Konturen
-    ctx.strokeStyle = isYellow ? '#ffffff' : 'rgba(0,0,0,0.15)';
-    ctx.lineWidth = isYellow ? 2 : 1;
+    // Plastischer Rahmen um den Block
+    ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+    ctx.lineWidth = 1;
     ctx.strokeRect(px + 1, py + 1, BLOCK_SIZE - 2, BLOCK_SIZE - 2);
 
-    // Zeiger (Schlüsselbart) rendern
+    // Klassesches Schlüsselloch rendern
     if (hasPointer) {
-        ctx.fillStyle = '#ffffff';
+        ctx.save();
+        if (isFalling) {
+            // Verhindert, dass sich das Schlüsselloch mit dem Stein mitdreht.
+            // Es bleibt optisch immer am unteren Ende des Blocks stehen.
+            ctx.translate(px + BLOCK_SIZE / 2, py + BLOCK_SIZE / 2);
+            ctx.rotate(-currentAngle);
+            ctx.translate(-(px + BLOCK_SIZE / 2), -(py + BLOCK_SIZE / 2));
+        }
+
+        ctx.fillStyle = '#1a1a24'; // Farbe des Schlüsselloch-Inners (Hintergrundfarbe)
+        
+        // 1. Der runde Teil (Kopf des Schlüssellochs am unteren Blockende)
+        let circleX = px + BLOCK_SIZE / 2;
+        let circleY = py + BLOCK_SIZE - 10;
+        let radius = 4;
+        
         ctx.beginPath();
-        ctx.moveTo(px + BLOCK_SIZE / 2 - 5, py + BLOCK_SIZE - 6);
-        ctx.lineTo(px + BLOCK_SIZE / 2 + 5, py + BLOCK_SIZE - 6);
-        ctx.lineTo(px + BLOCK_SIZE / 2, py + BLOCK_SIZE - 1);
+        ctx.arc(circleX, circleY, radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 2. Der längliche Bartteil, der nach unten in den nächsten Block ragt
+        ctx.beginPath();
+        ctx.moveTo(circleX - 2, circleY);
+        ctx.lineTo(circleX + 2, circleY);
+        ctx.lineTo(circleX + 3, py + BLOCK_SIZE + 8); // Ragt 8px über den Blockrand hinaus
+        ctx.lineTo(circleX - 3, py + BLOCK_SIZE + 8);
         ctx.closePath();
         ctx.fill();
 
-        ctx.fillStyle = '#000000';
-        ctx.beginPath();
-        ctx.arc(px + BLOCK_SIZE / 2, py + BLOCK_SIZE - 6, 1.5, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.restore();
     }
 }
 
-let lastDropTime = Date.now();
-const dropInterval = 1000;
-
-function gameLoop() {
-    let now = Date.now();
-    if (now - lastDropTime > dropInterval) {
-        dropPiece();
-        lastDropTime = now;
-    }
-    draw();
-    requestAnimationFrame(gameLoop);
-}
-
+// Input Handlers
 window.addEventListener('keydown', e => {
     if (gameOver) return;
     if (e.key === 'ArrowLeft') moveLeft();
@@ -443,8 +518,9 @@ window.addEventListener('keydown', e => {
     if (e.key === 'ArrowDown') { dropPiece(); score += 1; document.getElementById('score').innerText = score; }
 });
 
+// Init & Start
 spawnPiece();
-gameLoop();
+requestAnimationFrame(updateAndRender);
 </script>
 </body>
 </html>
