@@ -121,41 +121,42 @@ let grid = Array.from({ length: ROWS }, () =>
     Array.from({ length: COLS }, () => ({ filled: false, isYellow: false, hasPointer: false, pointerType: 'black', opacity: 1 }))
 );
 
+// Echte quadratische Boxen nach Tetris-Standard, voll deklariert
 const SHAPES = {
     I: [
-        [0, 0, 0, 0],
-        [1, 1, 1, 1],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0]
+        [0,0,0,0],
+        [1,1,1,1],
+        [0,0,0,0],
+        [0,0,0,0]
     ],
     J: [
-        [1, 0, 0],
-        [1, 1, 1],
-        [0, 0, 0]
+        [1,0,0],
+        [1,1,1],
+        [0,0,0]
     ],
     L: [
-        [0, 0, 1],
-        [1, 1, 1],
-        [0, 0, 0]
+        [0,0,1],
+        [1,1,1],
+        [0,0,0]
     ],
     O: [
-        [1, 1],
-        [1, 1]
+        [1,1],
+        [1,1]
     ],
     S: [
-        [0, 1, 1],
-        [1, 1, 0],
-        [0, 0, 0]
+        [0,1,1],
+        [1,1,0],
+        [0,0,0]
     ],
     Z: [
-        [1, 1, 0],
-        [0, 1, 1],
-        [0, 0, 0]
+        [1,1,0],
+        [0,1,1],
+        [0,0,0]
     ],
     T: [
-        [0, 1, 0],
-        [1, 1, 1],
-        [0, 0, 0]
+        [0,1,0],
+        [1,1,1],
+        [0,0,0]
     ]
 };
 
@@ -179,7 +180,7 @@ function createPieceData(type) {
                     active: 1, 
                     hasPointer: r < 0.35,
                     pointerType: Math.random() < 0.5 ? 'black' : 'blue',
-                    initialDir: 1 
+                    initialDir: 1 // 0: oben, 1: unten, 2: links, 3: rechts
                 };
             }
             return { active: 0, hasPointer: false, pointerType: 'black', initialDir: 1 };
@@ -201,7 +202,7 @@ function spawnPiece() {
         matrix: nextPiece.matrix,
         x: Math.floor((COLS - nextPiece.matrix.length) / 2),
         y: nextPiece.type === 'I' ? -1 : 0,
-        rotationState: 0 
+        rotationState: 0
     };
 
     const keys = Object.keys(SHAPES);
@@ -248,7 +249,7 @@ function rotateMatrixClockwise(matrix) {
         for (let c = 0; c < n; c++) {
             newMatrix[c][n - 1 - r] = { ...matrix[r][c] };
             if (newMatrix[c][n - 1 - r].hasPointer && newMatrix[c][n - 1 - r].pointerType === 'blue') {
-                let dirs = {0: 3, 1: 2, 2: 0, 3: 1}; 
+                let dirs = [3, 2, 0, 1]; // O(0)->R(3), U(1)->L(2), L(2)->O(0), R(3)->U(1)
                 newMatrix[c][n - 1 - r].initialDir = dirs[matrix[r][c].initialDir];
             }
         }
@@ -354,20 +355,20 @@ function isFallingBlockYellowRealtime(gridX, gridY) {
 
                 if (pType === 'black' && gridX === pX && gridY === pY + 1) return true;
                 if (pType === 'blue') {
-                    if (pDir === 0 && gridX === pX && gridY === pY - 1) return true; 
-                    if (pDir === 1 && gridX === pX && gridY === pY + 1) return true; 
-                    if (pDir === 2 && gridX === pX - 1 && gridY === pY) return true; 
-                    if (pDir === 3 && gridX === pX + 1 && gridY === pY) return true; 
+                    if (pDir === 0 && gridX === pX && gridY === pY - 1) return true;
+                    if (pDir === 1 && gridX === pX && gridY === pY + 1) return true;
+                    if (pDir === 2 && gridX === pX - 1 && gridY === pY) return true;
+                    if (pDir === 3 && gridX === pX + 1 && gridY === pY) return true;
                 }
             }
         }
     }
 
     let dirs = [
-        {dx: 0, dy: 1, dir: 0},  
-        {dx: 0, dy: -1, dir: 1}, 
-        {dx: 1, dy: 0, dir: 2},  
-        {dx: -1, dy: 0, dir: 3}  
+        {dx: 0, dy: 1, dir: 0},
+        {dx: 0, dy: -1, dir: 1},
+        {dx: 1, dy: 0, dir: 2},
+        {dx: -1, dy: 0, dir: 3}
     ];
 
     for (let d of dirs) {
@@ -522,10 +523,10 @@ function draw() {
                 
                 let staticRot = 0; 
                 if (grid[r][c].pointerType === 'blue') {
-                    if (grid[r][c].initialDir === 0) staticRot = Math.PI;      
-                    if (grid[r][c].initialDir === 1) staticRot = 0;            
-                    if (grid[r][c].initialDir === 2) staticRot = Math.PI / 2;  
-                    if (grid[r][c].initialDir === 3) staticRot = -Math.PI / 2; 
+                    if (grid[r][c].initialDir === 0) staticRot = Math.PI;
+                    if (grid[r][c].initialDir === 1) staticRot = 0;
+                    if (grid[r][c].initialDir === 2) staticRot = Math.PI / 2;
+                    if (grid[r][c].initialDir === 3) staticRot = -Math.PI / 2;
                 }
                 drawLocksmithBlock(ctx, c, r, color, grid[r][c].hasPointer, grid[r][c].pointerType, staticRot);
             }
@@ -618,7 +619,6 @@ function drawLocksmithBlock(context, x, y, color, hasPointer, pointerType, keyRo
         context.arc(0, cy, 5, 0, Math.PI * 2);
         context.fill();
 
-        context.shadowColor = 'transparent';
         context.fillStyle = '#1a1a24';
         context.beginPath();
         context.arc(0, cy, 3, 0, Math.PI * 2);
@@ -628,6 +628,8 @@ function drawLocksmithBlock(context, x, y, color, hasPointer, pointerType, keyRo
         context.restore();
     }
 }
+
+let lastDropTime = Date.now();
 
 function gameLoop() {
     let now = Date.now();
