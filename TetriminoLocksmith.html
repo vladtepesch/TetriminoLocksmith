@@ -38,17 +38,17 @@
         }
         .info-box {
             background: #1e1e2f;
-            padding: 15px;
+            padding: 12px;
             border-radius: 8px;
             border-left: 4px solid #f2d984;
-            margin-bottom: 15px;
+            margin-bottom: 12px;
         }
-        .info-box h3 { margin: 0 0 5px 0; font-size: 12px; text-transform: uppercase; color: #888; }
+        .info-box h3 { margin: 0 0 4px 0; font-size: 12px; text-transform: uppercase; color: #888; }
         .info-box p { margin: 0; font-size: 24px; font-weight: bold; }
         .controls-hint {
-            font-size: 12px;
+            font-size: 11px;
             color: #aaa;
-            line-height: 1.6;
+            line-height: 1.5;
         }
         .key {
             background: #34495e;
@@ -80,10 +80,14 @@
                     <p id="score">0</p>
                 </div>
                 <div class="info-box">
+                    <h3>Level</h3>
+                    <p id="level">1</p>
+                </div>
+                <div class="info-box">
                     <h3>Gelbe Blöcke</h3>
                     <p id="yellow-count">0</p>
                 </div>
-                <div class="info-box" style="padding: 10px;">
+                <div class="info-box" style="padding: 10px; margin-bottom: 0;">
                     <h3 style="margin-bottom: 5px;">Nächstes Teil</h3>
                     <canvas id="nextCanvas" width="120" height="120"></canvas>
                 </div>
@@ -95,8 +99,8 @@
                 <p><span class="key">↑</span> : Rotieren</p>
                 <p><span class="key">↓</span> : Sanfter Fall</p>
                 <p><span class="key">Space</span> / <span class="key">Doppel-↓</span> : Hard Drop</p>
-                <hr style="border: 0; border-top: 1px solid #444; margin: 10px 0;">
-                <p style="font-size: 10px; color: #f2d984;">💡 <b>Regel:</b> Schwarz zeigt immer nach unten. Blau dreht sich mit und färbt in seine Blickrichtung!</p>
+                <hr style="border: 0; border-top: 1px solid #444; margin: 8px 0;">
+                <p style="font-size: 10px; color: #f2d984;">💡 Schwarz zeigt immer nach unten. Blau dreht sich mit. Alle 1000 Punkte steigt das Level und die Geschwindigkeit!</p>
             </div>
         </div>
     </div>
@@ -115,13 +119,13 @@ const COLOR_PASTEL_RED = '#ff8b94';
 const COLOR_PASTEL_YELLOW = '#f2d984';
 
 let score = 0;
+let level = 1;
 let gameOver = false;
 
 let grid = Array.from({ length: ROWS }, () => 
     Array.from({ length: COLS }, () => ({ filled: false, isYellow: false, hasPointer: false, pointerType: 'black', opacity: 1 }))
 );
 
-// Echte quadratische Boxen nach Tetris-Standard, voll deklariert
 const SHAPES = {
     I: [
         [0,0,0,0],
@@ -175,12 +179,11 @@ function createPieceData(type) {
     return shapeMatrix.map(row => 
         row.map(val => {
             if (val === 1) {
-                let r = Math.random();
                 return { 
                     active: 1, 
-                    hasPointer: r < 0.35,
-                    pointerType: Math.random() < 0.5 ? 'black' : 'blue',
-                    initialDir: 1 // 0: oben, 1: unten, 2: links, 3: rechts
+                    hasPointer: Math.random() < 0.35,
+                    pointerType: Math.random() < 0.15 ? 'blue' : 'black',
+                    initialDir: 1 // 0:oben, 1:unten, 2:links, 3:rechts
                 };
             }
             return { active: 0, hasPointer: false, pointerType: 'black', initialDir: 1 };
@@ -190,6 +193,7 @@ function createPieceData(type) {
 
 function spawnPiece() {
     isHardDropping = false;
+    lastDownKeyTime = 0; // Schutz zurücksetzen bei neuem Spawn
     
     if (!nextPiece) {
         const keys = Object.keys(SHAPES);
@@ -201,8 +205,7 @@ function spawnPiece() {
         type: nextPiece.type,
         matrix: nextPiece.matrix,
         x: Math.floor((COLS - nextPiece.matrix.length) / 2),
-        y: nextPiece.type === 'I' ? -1 : 0,
-        rotationState: 0
+        y: nextPiece.type === 'I' ? -1 : 0
     };
 
     const keys = Object.keys(SHAPES);
@@ -249,7 +252,7 @@ function rotateMatrixClockwise(matrix) {
         for (let c = 0; c < n; c++) {
             newMatrix[c][n - 1 - r] = { ...matrix[r][c] };
             if (newMatrix[c][n - 1 - r].hasPointer && newMatrix[c][n - 1 - r].pointerType === 'blue') {
-                let dirs = [3, 2, 0, 1]; // O(0)->R(3), U(1)->L(2), L(2)->O(0), R(3)->U(1)
+                let dirs = { 0: 3, 1: 2, 2: 0, 3: 1 };
                 newMatrix[c][n - 1 - r].initialDir = dirs[matrix[r][c].initialDir];
             }
         }
@@ -260,29 +263,11 @@ function rotateMatrixClockwise(matrix) {
 function rotatePiece() {
     if (!currentPiece || fadeAnimationActive || isHardDropping) return;
 
-    let nextMatrix;
-    let nextX = currentPiece.x;
+    let nextMatrix = rotateMatrixClockwise(currentPiece.matrix);
 
-    if (currentPiece.type === 'I') {
-        if (currentPiece.rotationState === 0) {
-            nextMatrix = rotateMatrixClockwise(currentPiece.matrix);
-            currentPiece.rotationState = 1;
-        } else {
-            nextMatrix = rotateMatrixClockwise(currentPiece.matrix);
-            nextMatrix = rotateMatrixClockwise(nextMatrix);
-            nextMatrix = rotateMatrixClockwise(nextMatrix);
-            currentPiece.rotationState = 0;
-        }
-    } else {
-        nextMatrix = rotateMatrixClockwise(currentPiece.matrix);
-    }
-
-    if (!checkCollision(nextX, currentPiece.y, nextMatrix)) {
+    if (!checkCollision(currentPiece.x, currentPiece.y, nextMatrix)) {
         currentPiece.matrix = nextMatrix;
-        currentPiece.x = nextX;
         visualRotationOffset -= Math.PI / 2;
-    } else {
-        if (currentPiece.type === 'I') currentPiece.rotationState = currentPiece.rotationState === 0 ? 1 : 0;
     }
 }
 
@@ -336,6 +321,7 @@ function lockPiece() {
     }
     currentPiece = null;
     isHardDropping = false;
+    lastDownKeyTime = 0; // Absicherung nach dem Festsetzen zurücksetzen
 }
 
 function isFallingBlockYellowRealtime(gridX, gridY) {
@@ -474,8 +460,17 @@ function animateRowDisappearance(toRemove) {
                     }
                 }
             }
+            
+            // Punktevergabe ausschließlich für eliminierte Blöcke
             score += removedBlocks * 50;
             document.getElementById('score').innerText = score;
+            
+            // Levelberechnung: Alle 1000 Punkte ein Level-Up
+            let newLevel = Math.floor(score / 1000) + 1;
+            if (newLevel !== level) {
+                level = newLevel;
+                document.getElementById('level').innerText = level;
+            }
             
             applyGravity();
             applyKeyMechanic();
@@ -493,7 +488,8 @@ function applyGravity() {
             if (!grid[r][c].filled) {
                 for (let kr = r - 1; kr >= 0; kr--) {
                     if (grid[kr][c].filled) {
-                        grid[r][c] = { ...grid[kr][c] };
+                        // Tiefenreine Objekttrennung verhindert Kaskadenfehler und fehlerhaftes Verschwinden
+                        grid[r][c] = JSON.parse(JSON.stringify(grid[kr][c]));
                         grid[kr][c] = { filled: false, isYellow: false, hasPointer: false, pointerType: 'black', opacity: 1 };
                         break;
                     }
@@ -634,9 +630,13 @@ let lastDropTime = Date.now();
 function gameLoop() {
     let now = Date.now();
     
+    // Dynamische Berechnung des Intervalls basierend auf dem aktuellen Level
+    // Level 1 = 1000ms, Level 2 = 850ms, Level 3 = 700ms usw. Bis minimal 100ms
+    let dynamicInterval = Math.max(100, 1000 - (level - 1) * 150);
+    
     if (isHardDropping) {
         dropPiece();
-    } else if (now - lastDropTime > 1000) {
+    } else if (now - lastDropTime > dynamicInterval) {
         dropPiece();
         lastDropTime = now;
     }
@@ -658,8 +658,6 @@ window.addEventListener('keydown', e => {
             startHardDrop();
         } else {
             dropPiece();
-            score += 1;
-            document.getElementById('score').innerText = score;
         }
         lastDownKeyTime = currentTime;
     }
