@@ -156,7 +156,7 @@
                     <h3>Level</h3>
                     <p id="level">1</p>
                 </div>
-                <div class="info-box">
+                <div class="info-box" style="display:none;">
                     <h3>Gelbe Blöcke</h3>
                     <p id="yellow-count">0</p>
                 </div>
@@ -317,9 +317,59 @@ function spawnPiece() {
     animX = currentPiece.x;
     animY = currentPiece.y;
     visualRotationOffset = 0;
-
+    
+    /**/
+    const pattern = [
+      "##--##--##",
+      "#--#--#--#",
+      "#--#--#--#",
+      "#---##---#",
+      "##------##",
+      "#--#--#--#",
+      "#--#--#--#",
+      "#---##---#",
+      "##------##",
+      "#--####--#",
+      "#--#-----#",
+      "#--###---#",
+      "#--#-----#",
+      "#--####--#",
+      "##------##",
+      "#--###---#",
+      "#--#--#--#",
+      "#--###---#",
+      "#--#--#--#",
+      "##-#--#-##",
+    ];
+    /**/
     if (checkCollision(currentPiece.x, currentPiece.y, currentPiece.matrix)) {
-        gameOver = true;
+        lockPiece();
+        let r = 0;//ROWS-1;
+        let c = Math.floor(COLS/2)-1;
+        function gameoveranim(){
+            if(r>ROWS/2){
+                gameOver = true;
+                return;
+            }
+            for(let tr of [r, ROWS-r-1]){
+              for(let tc of [c, COLS-c-1]){
+                  const p = '#' == pattern[tr].charAt(tc);
+                  grid[tr][tc].filled = true;
+                  grid[tr][tc].isYellow = p;
+                  grid[tr][tc].hasPointer = false;
+                  grid[tr][tc].opacity = 1;
+              }
+            }
+            c--;
+            if(c<0){
+                r++;
+                c = Math.floor(COLS/2);
+            }
+            requestAnimationFrame(gameoveranim);
+        }
+        gameState = 'gameover';
+        gameoveranim();
+        
     }
     
     drawNext();
@@ -902,7 +952,7 @@ function draw() {
     }
 
     if (gameOver) {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = '#ff8b94';
         ctx.font = 'bold 30px Segoe UI';
@@ -914,7 +964,7 @@ function draw() {
         restartButton.style.display = 'block';
     }
     if (gamePaused) {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = '#ff8b94';
         ctx.font = 'bold 30px Segoe UI';
