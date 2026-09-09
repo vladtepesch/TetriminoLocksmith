@@ -64,6 +64,18 @@
             border-radius: 4px;
             margin-top: 5px;
         }
+        #block.red {
+            background-color: #86474d;
+        } 
+        #block.yellow {
+            background-color: #c5a94c;
+        }
+        #pointer.black{
+            background-color: #1a1a24;
+        }
+        #pointer.blue{
+            background-color: #10216b;
+        }
     </style>
 </head>
 <body>
@@ -116,8 +128,21 @@ const ROWS = 20;
 const COLS = 10;
 const BLOCK_SIZE = 30;
 
-const COLOR_PASTEL_RED = '#ff8b94';
-const COLOR_PASTEL_YELLOW = '#f2d984';
+function getCSSColor(id,className) {
+    const block = document.createElement('div');
+    block.id = id;
+    block.className = className;
+    block.style.display = 'none';
+    document.body.appendChild(block);
+    const color = getComputedStyle(block).backgroundColor;
+    block.remove();
+    return color;
+}
+
+const COLOR_PASTEL_RED = getCSSColor('block', 'red');
+const COLOR_PASTEL_YELLOW = getCSSColor('block', 'yellow');
+const COLOR_POINTER_BLACK = getCSSColor('pointer', 'black');
+const COLOR_POINTER_BLUE = getCSSColor('pointer', 'blue');
 
 let score = 0;
 let level = 1;
@@ -626,12 +651,14 @@ function draw() {
         ctx.beginPath(); ctx.moveTo(c * BLOCK_SIZE, 0); ctx.lineTo(c * BLOCK_SIZE, canvas.height); ctx.stroke();
     }
 
+    let pointerToDraw = [];
     for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
             if (grid[r][c].filled) {
                 ctx.globalAlpha = grid[r][c].opacity;
                 let color = grid[r][c].isYellow ? COLOR_PASTEL_YELLOW : COLOR_PASTEL_RED;
                 
+                if(grid[r][c].hasPointer){
                 let staticRot = 0; 
                 if (grid[r][c].pointerType === 'blue') {
                     if (grid[r][c].initialDir === 0) staticRot = Math.PI;
@@ -639,10 +666,17 @@ function draw() {
                     if (grid[r][c].initialDir === 2) staticRot = Math.PI / 2;
                     if (grid[r][c].initialDir === 3) staticRot = -Math.PI / 2;
                 }
-                drawLocksmithBlock(ctx, c, r, color, grid[r][c].hasPointer, grid[r][c].pointerType, staticRot, 0, grid[r][c].visualYOffset);
+                    pointerToDraw.push([c, r, grid[r][c].pointerType, staticRot, 0, grid[r][c].visualYOffset]);
+                }
+                drawBlock(ctx, c, r, color, 0, grid[r][c].visualYOffset);
             }
         }
     }
+    for(let p of pointerToDraw){
+        drawPointer(ctx, ...p);
+    }
+    pointerToDraw = [];
+
     ctx.globalAlpha = 1.0;
 
     if (currentPiece && gameState === 'playing') {
@@ -669,17 +703,24 @@ function draw() {
                     let logicY = currentPiece.y + r;
                     let color = isFallingBlockYellowRealtime(logicX, logicY) ? COLOR_PASTEL_YELLOW : COLOR_PASTEL_RED;
 
+                    if(currentPiece.matrix[r][c].hasPointer){
                     let keyRot = currentPiece.matrix[r][c].pointerType === 'black' ? -visualRotationOffset : 0;
                     if (currentPiece.matrix[r][c].pointerType === 'blue') {
                         if (currentPiece.matrix[r][c].initialDir === 0) keyRot += Math.PI;
                         if (currentPiece.matrix[r][c].initialDir === 2) keyRot += Math.PI / 2;
                         if (currentPiece.matrix[r][c].initialDir === 3) keyRot -= Math.PI / 2;
                     }
+                      pointerToDraw.push([drawX, drawY, currentPiece.matrix[r][c].pointerType, keyRot]);
+                    }
+                    drawBlock(ctx, drawX, drawY, color);
 
-                    drawLocksmithBlock(ctx, drawX, drawY, color, currentPiece.matrix[r][c].hasPointer, currentPiece.matrix[r][c].pointerType, keyRot);
                 }
             }
         }
+        for(let p of pointerToDraw){
+            drawPointer(ctx, ...p);
+        }
+   
         ctx.restore();
     }
 
@@ -720,13 +761,20 @@ function drawNext() {
     for (let r = 0; r < size; r++) {
         for (let c = 0; c < size; c++) {
             if (nextPiece.matrix[r][c].active) {
-                drawLocksmithBlock(nextCtx, c, r, COLOR_PASTEL_RED, nextPiece.matrix[r][c].hasPointer, nextPiece.matrix[r][c].pointerType, 0, offset, 0);
+                drawBlock(nextCtx, c, r, COLOR_PASTEL_RED, offset);
+            }
+        }
+    }
+    for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+            if (nextPiece.matrix[r][c].active && nextPiece.matrix[r][c].hasPointer ) {
+                drawPointer(nextCtx, c, r, nextPiece.matrix[r][c].pointerType, 0, offset);
             }
         }
     }
 }
 
-function drawLocksmithBlock(context, x, y, color, hasPointer, pointerType, keyRotation, pixelOffset = 0, yAnimateOffset = 0) {
+function drawBlock(context, x, y, color, pixelOffset = 0, yAnimateOffset = 0) {
     let px = x * BLOCK_SIZE + pixelOffset;
     let py = y * BLOCK_SIZE + pixelOffset + yAnimateOffset;
 
@@ -736,25 +784,73 @@ function drawLocksmithBlock(context, x, y, color, hasPointer, pointerType, keyRo
     context.strokeStyle = 'rgba(255,255,255,0.2)';
     context.lineWidth = 1;
     context.strokeRect(px + 1, py + 1, BLOCK_SIZE - 2, BLOCK_SIZE - 2);
+}
 
-    if (hasPointer) {
+function drawPointer(context, x, y, pointerType, keyRotation, pixelOffset = 0, yAnimateOffset = 0) {
+    let px = x * BLOCK_SIZE + pixelOffset;
+    let py = y * BLOCK_SIZE + pixelOffset + yAnimateOffset;
+    const lockRadius = BLOCK_SIZE / 2 - 9;
+    const lockRadiusInner = 3;
+    const rectWidthUpper = 4;
+    const rectWidthLower = 8;
+    const rectHeight = BLOCK_SIZE /2 + 5;
+
         context.save();
         context.translate(px + BLOCK_SIZE / 2, py + BLOCK_SIZE / 2);
         context.rotate(keyRotation);
 
-        context.fillStyle = pointerType === 'blue' ? '#3498db' : '#1a1a24';
+    context.fillStyle = pointerType === 'blue' ? COLOR_POINTER_BLUE : COLOR_POINTER_BLACK;
         context.beginPath();
-        let cy = BLOCK_SIZE / 2 - 10; 
-        context.arc(0, cy, 5, 0, Math.PI * 2);
+    context.arc(0, 0, lockRadius, 0, Math.PI * 2);
         context.fill();
 
-        context.fillStyle = '#1a1a24';
+    //context.fillStyle = '#1a1a24';
         context.beginPath();
-        context.arc(0, cy, 3, 0, Math.PI * 2);
-        context.rect(-1.5, cy, 3, 11);
+    context.arc(0, 0, lockRadiusInner, 0, Math.PI * 2);
+    context.closePath();
+    context.fill();
+
+    //   (  )
+    //    ##
+    //    ####
+    //    ##
+    //    ####
+
+    //const keyholeHeight = BLOCK_SIZE /2 + 5;
+    //const keyholeWidth = 5;
+    //const keyholeFeatureWidth = 5;
+    //const keyholeFeatureHeight = 3;
+    //context.beginPath();
+    //context.moveTo(-keyholeWidth/2, 0);
+    //context.lineTo(-keyholeWidth/2, keyholeHeight);
+    //context.lineTo(keyholeWidth/2 + keyholeFeatureWidth, keyholeHeight);
+    //context.lineTo(keyholeWidth/2 + keyholeFeatureWidth, keyholeHeight-keyholeFeatureHeight);
+    //context.lineTo(keyholeWidth/2, keyholeHeight-keyholeFeatureHeight);
+    //context.lineTo(keyholeWidth/2, keyholeHeight-keyholeFeatureHeight*2);
+    //context.lineTo(keyholeWidth/2 + keyholeFeatureWidth, keyholeHeight-keyholeFeatureHeight*2);
+    //context.lineTo(keyholeWidth/2 + keyholeFeatureWidth, keyholeHeight-keyholeFeatureHeight*3);
+    //context.lineTo(keyholeWidth/2, keyholeHeight-keyholeFeatureHeight*3);
+    //context.lineTo(keyholeWidth/2, 0);
+    //context.closePath();
+    //context.fill();
+    //   
+    //  ( )  shape
+    //  /_\
+    context.beginPath();
+    context.moveTo(-rectWidthUpper/2, 0);
+    context.lineTo(-rectWidthLower/2, rectHeight);
+    context.lineTo(rectWidthLower/2, rectHeight);
+    context.lineTo(rectWidthUpper/2, 0);
+    context.closePath();
         context.fill();
 
         context.restore();
+}
+
+function drawLocksmithBlock(context, x, y, color, hasPointer, pointerType, keyRotation, pixelOffset = 0, yAnimateOffset = 0) {
+    drawBlock(context, x, y, color, pixelOffset, yAnimateOffset);
+    if (hasPointer) {
+        drawPointer(context, x, y, pointerType, keyRotation, pixelOffset, yAnimateOffset);
     }
 }
 
