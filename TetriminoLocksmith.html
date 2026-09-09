@@ -40,7 +40,7 @@
             background: #1e1e2f;
             padding: 15px;
             border-radius: 8px;
-            border-left: 4px solid #f1c40f;
+            border-left: 4px solid #f2d984;
             margin-bottom: 15px;
         }
         .info-box h3 { margin: 0 0 5px 0; font-size: 12px; text-transform: uppercase; color: #888; }
@@ -62,11 +62,10 @@
 </head>
 <body>
 
-    <h2 style="margin-bottom: 10px; color: #f1c40f; letter-spacing: 1px;">LOCKPICKING TETRIS</h2>
+    <h2 style="margin-bottom: 10px; color: #f2d984; letter-spacing: 1px;">LOCKPICKING TETRIS</h2>
 
     <div id="game-container">
         <canvas id="gameCanvas" width="300" height="600"></canvas>
-
         <div id="sidebar">
             <div>
                 <div class="info-box">
@@ -78,33 +77,38 @@
                     <p id="yellow-count">0</p>
                 </div>
             </div>
-
             <div class="controls-hint">
                 <h3>Steuerung:</h3>
                 <p><span class="key">←</span> <span class="key">→</span> : Bewegen</p>
                 <p><span class="key">↑</span> : Rotieren</p>
                 <p><span class="key">↓</span> : Schneller Fall</p>
                 <hr style="border: 0; border-top: 1px solid #444; margin: 10px 0;">
-                <p style="font-size: 11px; color: #f1c40f;">💡 <b>Regel:</b> Mindestens 3 nebeneinanderliegende gelbe Blöcke lösen sich auf!</p>
+                <p style="font-size: 11px; color: #f2d984;">💡 <b>Regel:</b> Mindestens 3 nebeneinanderliegende gelbe Blöcke lösen sich auf!</p>
             </div>
         </div>
     </div>
 
 <script>
 const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.width ? canvas.getContext('2d') : null;
+const ctx = canvas.getContext('2d');
 
 const ROWS = 20;
 const COLS = 10;
 const BLOCK_SIZE = 30;
 
+// Farb-Konstanten für das gesamte Spiel
+const COLOR_PASTEL_RED = '#ff8b94';   // Für inaktive / normale Blöcke
+const COLOR_PASTEL_YELLOW = '#f2d984';// Für aktivierte gelbe Blöcke
+
 let score = 0;
 let gameOver = false;
 
+// Spielfeld-Matrix
 let grid = Array.from({ length: ROWS }, () => 
-    Array.from({ length: COLS }, () => ({ filled: false, color: '', isYellow: false, hasPointer: false }))
+    Array.from({ length: COLS }, () => ({ filled: false, isYellow: false, hasPointer: false }))
 );
 
+// Die 7 klassischen Tetris-Formen (Tetriminos)
 const SHAPES = {
     I: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
     J: [[1,0,0],[1,1,1],[0,0,0]],
@@ -115,11 +119,6 @@ const SHAPES = {
     T: [[0,1,0],[1,1,1],[0,0,0]]
 };
 
-const COLORS = {
-    I: '#00f0f0', J: '#0000f0', L: '#f0a000',
-    O: '#f0f000', S: '#00f000', Z: '#f00000', T: '#a000f0'
-};
-
 let currentPiece = null;
 
 function spawnPiece() {
@@ -127,6 +126,7 @@ function spawnPiece() {
     const type = keys[Math.floor(Math.random() * keys.length)];
     const shapeMatrix = SHAPES[type];
     
+    // Matrix kopieren und Schlüsselbart-Daten hinzufügen
     const matrix = shapeMatrix.map(row => 
         row.map(val => {
             if (val === 1) {
@@ -136,6 +136,7 @@ function spawnPiece() {
         })
     );
 
+    // Sicherstellen, dass mindestens ein Zeiger existiert
     let hasAnyPointer = matrix.some(row => row.some(b => b.hasPointer));
     if (!hasAnyPointer) {
         let validBlocks = [];
@@ -146,9 +147,8 @@ function spawnPiece() {
 
     currentPiece = {
         type: type,
-        color: COLORS[type],
         matrix: matrix,
-        x: Math.floor((COLS - matrix[0].length) / 2),
+        x: Math.floor((COLS - matrix.length) / 2),
         y: 0
     };
 
@@ -225,7 +225,6 @@ function lockPiece() {
                 if (targetY >= 0) {
                     grid[targetY][targetX] = {
                         filled: true,
-                        color: currentPiece.color,
                         isYellow: false,
                         hasPointer: currentPiece.matrix[r][c].hasPointer
                     };
@@ -242,7 +241,6 @@ function applyKeyMechanic() {
                 let targetY = r + 1;
                 if (targetY < ROWS && grid[targetY][c].filled) {
                     grid[targetY][c].isYellow = true;
-                    grid[targetY][c].color = '#f1c40f';
                 }
             }
         }
@@ -259,24 +257,18 @@ function checkMatch3Yellow() {
 
         for (let c = 0; c < COLS; c++) {
             if (grid[r][c].filled && grid[r][c].isYellow) {
-                if (matchCount === 0) {
-                    matchStartIndex = c;
-                }
+                if (matchCount === 0) matchStartIndex = c;
                 matchCount++;
             } else {
                 if (matchCount >= 3) {
-                    for (let m = matchStartIndex; m < c; m++) {
-                        toRemove[r][m] = true;
-                    }
+                    for (let m = matchStartIndex; m < c; m++) toRemove[r][m] = true;
                     matchFound = true;
                 }
                 matchCount = 0;
             }
         }
         if (matchCount >= 3) {
-            for (let m = matchStartIndex; m < COLS; m++) {
-                toRemove[r][m] = true;
-            }
+            for (let m = matchStartIndex; m < COLS; m++) toRemove[r][m] = true;
             matchFound = true;
         }
     }
@@ -286,7 +278,7 @@ function checkMatch3Yellow() {
         for (let r = 0; r < ROWS; r++) {
             for (let c = 0; c < COLS; c++) {
                 if (toRemove[r][c]) {
-                    grid[r][c] = { filled: false, color: '', isYellow: false, hasPointer: false };
+                    grid[r][c] = { filled: false, isYellow: false, hasPointer: false };
                     removedBlocks++;
                 }
             }
@@ -312,7 +304,7 @@ function applyGravity() {
                 for (let kr = r - 1; kr >= 0; kr--) {
                     if (grid[kr][c].filled) {
                         grid[r][c] = grid[kr][c];
-                        grid[kr][c] = { filled: false, color: '', isYellow: false, hasPointer: false };
+                        grid[kr][c] = { filled: false, isYellow: false, hasPointer: false };
                         break;
                     }
                 }
@@ -321,10 +313,42 @@ function applyGravity() {
     }
 }
 
+// Hilfsfunktion zur Ermittlung, ob ein Block (auch ein fallender) gelb eingefärbt werden muss
+function isBlockYellowVisual(x, y, isStaticGridBlock, blockHasPointer) {
+    // Wenn es ein bereits im Grid festgesetzter Block ist, gilt sein interner Status
+    if (isStaticGridBlock) {
+        return grid[y][x].isYellow;
+    }
+
+    // Für fallende Blöcke: Prüfen, ob direkt über diesem Feld ein fallender Block mit Zeiger existiert
+    if (currentPiece) {
+        // Berechne relative Position im aktuellen Tetrimino
+        let relX = x - currentPiece.x;
+        let relY = y - currentPiece.y;
+        
+        // Prüfe den Block direkt DARÜBER im Tetrimino
+        let checkRelY = relY - 1;
+        if (checkRelY >= 0 && checkRelY < currentPiece.matrix.length && relX >= 0 && relX < currentPiece.matrix[checkRelY].length) {
+            if (currentPiece.matrix[checkRelY][relX].active && currentPiece.matrix[checkRelY][relX].hasPointer) {
+                return true;
+            }
+        }
+        
+        // Oder falls der Block bereits auf dem Grid liegt und von einem stationären Zeiger getroffen wird
+        if (y > 0 && grid[y-1][x].filled && grid[y-1][x].hasPointer) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // Gitterlinien
     ctx.strokeStyle = '#1e1e2f';
+    ctx.lineWidth = 1;
     for (let r = 0; r <= ROWS; r++) {
         ctx.beginPath(); ctx.moveTo(0, r * BLOCK_SIZE); ctx.lineTo(canvas.width, r * BLOCK_SIZE); ctx.stroke();
     }
@@ -332,25 +356,27 @@ function draw() {
         ctx.beginPath(); ctx.moveTo(c * BLOCK_SIZE, 0); ctx.lineTo(c * BLOCK_SIZE, canvas.height); ctx.stroke();
     }
 
+    // Platziertes Grid zeichnen
     for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
             if (grid[r][c].filled) {
-                drawBlock(c, r, grid[r][c].color, grid[r][c].hasPointer, grid[r][c].isYellow);
+                let isYellow = isBlockYellowVisual(c, r, true, grid[r][c].hasPointer);
+                drawBlock(c, r, grid[r][c].hasPointer, isYellow);
             }
         }
     }
 
+    // Aktives fallendes Tetrimino zeichnen
     if (currentPiece) {
         for (let r = 0; r < currentPiece.matrix.length; r++) {
             for (let c = 0; c < currentPiece.matrix[r].length; c++) {
                 if (currentPiece.matrix[r][c].active) {
-                    drawBlock(
-                        currentPiece.x + c, 
-                        currentPiece.y + r, 
-                        currentPiece.color, 
-                        currentPiece.matrix[r][c].hasPointer,
-                        false
-                    );
+                    let worldX = currentPiece.x + c;
+                    let worldY = currentPiece.y + r;
+                    if (worldX >= 0 && worldX < COLS && worldY >= 0 && worldY < ROWS) {
+                        let isYellow = isBlockYellowVisual(worldX, worldY, false, currentPiece.matrix[r][c].hasPointer);
+                        drawBlock(worldX, worldY, currentPiece.matrix[r][c].hasPointer, isYellow);
+                    }
                 }
             }
         }
@@ -359,24 +385,27 @@ function draw() {
     if (gameOver) {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#e74c3c';
+        ctx.fillStyle = '#ff8b94';
         ctx.font = 'bold 30px Segoe UI';
         ctx.textAlign = 'center';
         ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2);
     }
 }
 
-function drawBlock(x, y, color, hasPointer, isYellow) {
+function drawBlock(x, y, hasPointer, isYellow) {
     let px = x * BLOCK_SIZE;
     let py = y * BLOCK_SIZE;
 
-    ctx.fillStyle = color;
+    // Nutzt die definierten Konstanten für die Farbgebung
+    ctx.fillStyle = isYellow ? COLOR_PASTEL_YELLOW : COLOR_PASTEL_RED;
     ctx.fillRect(px, py, BLOCK_SIZE, BLOCK_SIZE);
 
-    ctx.strokeStyle = isYellow ? '#fff' : 'rgba(0,0,0,0.2)';
+    // Konturen
+    ctx.strokeStyle = isYellow ? '#ffffff' : 'rgba(0,0,0,0.15)';
     ctx.lineWidth = isYellow ? 2 : 1;
     ctx.strokeRect(px + 1, py + 1, BLOCK_SIZE - 2, BLOCK_SIZE - 2);
 
+    // Zeiger (Schlüsselbart) rendern
     if (hasPointer) {
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
@@ -386,9 +415,9 @@ function drawBlock(x, y, color, hasPointer, isYellow) {
         ctx.closePath();
         ctx.fill();
 
-        ctx.fillStyle = '#000';
+        ctx.fillStyle = '#000000';
         ctx.beginPath();
-        ctx.arc(px + BLOCK_SIZE / 2, py + BLOCK_SIZE - 6, 2, 0, Math.PI * 2);
+        ctx.arc(px + BLOCK_SIZE / 2, py + BLOCK_SIZE - 6, 1.5, 0, Math.PI * 2);
         ctx.fill();
     }
 }
