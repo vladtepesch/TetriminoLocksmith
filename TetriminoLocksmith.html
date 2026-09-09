@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lockpicking - Tetrimino Locksmith</title>
+    <title>Tetrimino Locksmith</title>
     <style>
         body {
             margin: 0;
@@ -68,7 +68,7 @@
 </head>
 <body>
 
-    <h2 style="margin-bottom: 10px; color: #f2d984; letter-spacing: 1px; text-transform: uppercase;">Lockpicking Tetris</h2>
+    <h2 style="margin-bottom: 10px; color: #f2d984; letter-spacing: 1px; text-transform: uppercase;">Tetrimino Locksmith</h2>
 
     <div id="game-container">
         <canvas id="gameCanvas" width="300" height="600"></canvas>
@@ -96,11 +96,11 @@
             <div class="controls-hint">
                 <h3>Steuerung:</h3>
                 <p><span class="key">←</span> <span class="key">→</span> : Bewegen</p>
-                <p><span class="key">↑</span> : Rotieren (4-Wege SRS)</p>
+                <p><span class="key">↑</span> : 4-Wege Rotation</p>
                 <p><span class="key">↓</span> : Sanfter Fall</p>
                 <p><span class="key">Space</span> : Hard Drop</p>
                 <hr style="border: 0; border-top: 1px solid #444; margin: 10px 0;">
-                <p style="font-size: 10px; color: #f2d984;">💡 <b>Regel:</b> Schwarz zeigt immer nach unten. Blau dreht sich mit. Kaskaden stürzen als zusammenhängende Strukturen ab; Höhlen bleiben stabil!</p>
+                <p style="font-size: 10px; color: #f2d984;">💡 <b>Regel:</b> Schwebende Inseln stürzen als starre Objekte ab. Höhlen und Tunnel bleiben beim Aufprall geschützt!</p>
             </div>
         </div>
     </div>
@@ -122,66 +122,60 @@ let score = 0;
 let level = 1;
 let gameOver = false;
 
-// Spielfeld initialisieren
 let grid = Array.from({ length: ROWS }, () => 
-    Array.from({ length: COLS }, () => ({ filled: false, isYellow: false, hasPointer: false, pointerType: 'black', initialDir: 1, opacity: 1 }))
+    Array.from({ length: COLS }, () => ({ filled: false, isYellow: false, hasPointer: false, pointerType: 'black', opacity: 1, visualYOffset: 0 }))
 );
 
-// Box-Matrizen nach SRS-Standard
 const SHAPES = {
     I: [
-        [0, 0, 0, 0],
-        [1, 1, 1, 1],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0]
+        [0,0,0,0],
+        [1,1,1,1],
+        [0,0,0,0],
+        [0,0,0,0]
     ],
     J: [
-        [1, 0, 0],
-        [1, 1, 1],
-        [0, 0, 0]
+        [1,0,0],
+        [1,1,1],
+        [0,0,0]
     ],
     L: [
-        [0, 0, 1],
-        [1, 1, 1],
-        [0, 0, 0]
+        [0,0,1],
+        [1,1,1],
+        [0,0,0]
     ],
     O: [
-        [1, 1],
-        [1, 1]
+        [1,1],
+        [1,1]
     ],
     S: [
-        [0, 1, 1],
-        [1, 1, 0],
-        [0, 0, 0]
+        [0,1,1],
+        [1,1,0],
+        [0,0,0]
     ],
     Z: [
-        [1, 1, 0],
-        [0, 1, 1],
-        [0, 0, 0]
+        [1,1,0],
+        [0,1,1],
+        [0,0,0]
     ],
     T: [
-        [0, 1, 0],
-        [1, 1, 1],
-        [0, 0, 0]
+        [0,1,0],
+        [1,1,1],
+        [0,0,0]
     ]
 };
 
 let currentPiece = null;
 let nextPiece = null;
 
-// Animations-Variablen
 let animX = 0;
 let animY = 0;
 let visualRotationOffset = 0;
 let gameState = 'playing'; // 'playing', 'fading', 'gravitating'
 let isHardDropping = false;
 
-// Kaskaden tracking
 let cascadeMultiplier = 1;
 let comboText = "";
-let comboTimer = 0;
-let currentFadeBlocks = [];
-let currentGravityMoves = [];
+let comboTextOpacity = 0;
 
 function createPieceData(type) {
     const shapeMatrix = SHAPES[type];
@@ -192,8 +186,8 @@ function createPieceData(type) {
                 return { 
                     active: 1, 
                     hasPointer: r < 0.35,
-                    pointerType: Math.random() < 0.15 ? 'blue' : 'black', // ~15% blau
-                    initialDir: 1 // 0: Oben, 1: Unten, 2: Links, 3: Rechts
+                    pointerType: Math.random() < 0.15 ? 'blue' : 'black',
+                    initialDir: 1
                 };
             }
             return { active: 0, hasPointer: false, pointerType: 'black', initialDir: 1 };
@@ -222,7 +216,6 @@ function spawnPiece() {
     const nextType = keys[Math.floor(Math.random() * keys.length)];
     nextPiece = { type: nextType, matrix: createPieceData(nextType) };
 
-    // Mindestens ein Schlüsselloch garantieren
     let hasAnyPointer = currentPiece.matrix.some(row => row.some(b => b.hasPointer));
     if (!hasAnyPointer) {
         let validBlocks = [];
@@ -263,8 +256,16 @@ function rotateMatrixClockwise(matrix) {
         for (let c = 0; c < n; c++) {
             newMatrix[c][n - 1 - r] = { ...matrix[r][c] };
             if (newMatrix[c][n - 1 - r].hasPointer && newMatrix[c][n - 1 - r].pointerType === 'blue') {
-                let dirs = [3, 2, 0, 1]; // O->R (3), U->L (2), L->O (0), R->U (1)
-                newMatrix[c][n - 1 - r].initialDir = dirs[matrix[r][c].initialDir];
+                // Richtungen: 0: oben, 1: unten, 2: links, 3: rechts
+                // Bei 90° Drehung im Uhrzeigersinn verschieben sich die Richtungen:
+                // oben(0)->rechts(3), unten(1)->links(2), links(2)->oben(0), rechts(3)->unten(1)
+                let currentDir = matrix[r][c].initialDir;
+                let nextDir = 1;
+                if (currentDir === 0) nextDir = 3;
+                else if (currentDir === 1) nextDir = 2;
+                else if (currentDir === 2) nextDir = 0;
+                else if (currentDir === 3) nextDir = 1;
+                newMatrix[c][n - 1 - r].initialDir = nextDir;
             }
         }
     }
@@ -275,16 +276,19 @@ function rotatePiece() {
     if (!currentPiece || gameState !== 'playing' || isHardDropping) return;
 
     let nextMatrix = rotateMatrixClockwise(currentPiece.matrix);
-    let kicks = [0, -1, 1, -2, 2]; // Einfaches SRS Wall-Kick System
-    
-    for (let kick of kicks) {
-        if (!checkCollision(currentPiece.x + kick, currentPiece.y, nextMatrix)) {
-            currentPiece.matrix = nextMatrix;
-            currentPiece.x += kick;
-            visualRotationOffset -= Math.PI / 2;
-            break;
-        }
+    let nextX = currentPiece.x;
+
+    if (checkCollision(nextX, currentPiece.y, nextMatrix)) {
+        if (!checkCollision(nextX + 1, currentPiece.y, nextMatrix)) nextX += 1;
+        else if (!checkCollision(nextX - 1, currentPiece.y, nextMatrix)) nextX -= 1;
+        else if (!checkCollision(nextX + 2, currentPiece.y, nextMatrix)) nextX += 2;
+        else if (!checkCollision(nextX - 2, currentPiece.y, nextMatrix)) nextX -= 2;
+        else return;
     }
+
+    currentPiece.matrix = nextMatrix;
+    currentPiece.x = nextX;
+    visualRotationOffset -= Math.PI / 2;
 }
 
 function moveLeft() {
@@ -306,15 +310,14 @@ function dropPiece() {
         currentPiece.y++;
     } else {
         lockPiece();
+        cascadeMultiplier = 1;
+        applyKeyMechanic();
+        checkMatch3Yellow();
     }
 }
 
-function startHardDrop() {
-    if (gameOver || gameState !== 'playing' || !currentPiece || isHardDropping) return;
-    isHardDropping = true;
-}
-
 function lockPiece() {
+    let placedBlocksCount = 0;
     for (let r = 0; r < currentPiece.matrix.length; r++) {
         for (let c = 0; c < currentPiece.matrix[r].length; c++) {
             if (currentPiece.matrix[r][c].active) {
@@ -327,22 +330,18 @@ function lockPiece() {
                         hasPointer: currentPiece.matrix[r][c].hasPointer,
                         pointerType: currentPiece.matrix[r][c].pointerType,
                         initialDir: currentPiece.matrix[r][c].initialDir,
-                        opacity: 1
+                        opacity: 1,
+                        visualYOffset: 0
                     };
+                    placedBlocksCount++;
                 }
             }
         }
     }
-    score += 1; // 1 Punkt für jeden abgelegten Block
-    document.getElementById('score').innerText = score;
-    checkLevelUp();
-
+    score += placedBlocksCount;
+    updateUI();
     currentPiece = null;
     isHardDropping = false;
-    cascadeMultiplier = 1;
-    
-    applyKeyMechanic();
-    processMatchEvaluation();
 }
 
 function isFallingBlockYellowRealtime(gridX, gridY) {
@@ -414,10 +413,10 @@ function applyKeyMechanic() {
     }
 }
 
-function processMatchEvaluation() {
+function checkMatch3Yellow() {
     let toRemove = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
     let matchFound = false;
-    let blocksRemovedCount = 0;
+    let totalRemovedInThisWave = 0;
 
     for (let r = 0; r < ROWS; r++) {
         let matchCount = 0;
@@ -430,7 +429,7 @@ function processMatchEvaluation() {
             } else {
                 if (matchCount >= 3) {
                     for (let m = matchStartIndex; m < c; m++) {
-                        if (!toRemove[r][m]) { toRemove[r][m] = true; blocksRemovedCount++; }
+                        if (!toRemove[r][m]) { toRemove[r][m] = true; totalRemovedInThisWave++; }
                     }
                     matchFound = true;
                 }
@@ -439,86 +438,173 @@ function processMatchEvaluation() {
         }
         if (matchCount >= 3) {
             for (let m = matchStartIndex; m < COLS; m++) {
-                if (!toRemove[r][m]) { toRemove[r][m] = true; blocksRemovedCount++; }
+                if (!toRemove[r][m]) { toRemove[r][m] = true; totalRemovedInThisWave++; }
             }
             matchFound = true;
         }
     }
 
     if (matchFound) {
-        let gain = (10 + 10 * blocksRemovedCount) * cascadeMultiplier;
-        score += gain;
-        document.getElementById('score').innerText = score;
-        checkLevelUp();
-
-        comboText = `Combo x${cascadeMultiplier}! +${gain}`;
-        comboTimer = 90;
-
-        currentFadeBlocks = [];
-        for(let r=0; r<ROWS; r++){
-            for(let c=0; c<COLS; c++){
-                if(toRemove[r][c]) currentFadeBlocks.push({r, c});
-            }
-        }
         gameState = 'fading';
+        let earnedPoints = (10 + 10 * totalRemovedInThisWave) * cascadeMultiplier;
+        score += earnedPoints;
+        comboText = `Combo x${cascadeMultiplier}! +${earnedPoints}`;
+        comboTextOpacity = 1.0;
+        updateUI();
+        animateRowDisappearance(toRemove);
     } else {
         cascadeMultiplier = 1;
-        gameState = 'playing';
-        spawnPiece();
-    }
-
-    let yellowTotal = 0;
-    grid.forEach(row => row.forEach(b => { if(b.isYellow) yellowTotal++; }));
-    document.getElementById('yellow-count').innerText = yellowTotal;
-}
-
-function checkLevelUp() {
-    let targetLevel = Math.floor(score / 5000) + 1;
-    if (targetLevel > level) {
-        level = targetLevel;
-        document.getElementById('level').innerText = level;
+        if (!currentPiece && !gameOver)  spawnPiece();
+        //if (gameState !== 'playing' && !gameOver) spawnPiece();
     }
 }
 
-function getDropInterval() {
-    return Math.max(100, 1000 - (level - 1) * 150);
-}
-
-// STRUKTUR-GRAVITATION LOGIK
-function calculateStructureGravity(toRemoveMap) {
-    let moves = [];
-    // Wir tracken für jedes Feld im Grid, ob es fällt und wie weit
-    let shiftGrid = Array.from({length: ROWS}, () => Array(COLS).fill(0));
+function animateRowDisappearance(toRemove) {
+    let steps = 8;
+    let currentStep = 0;
     
-    // Spaltenweise von unten nach oben analysieren
+    function fade() {
+        currentStep++;
+        for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+                if (toRemove[r][c]) {
+                    grid[r][c].opacity = 1 - (currentStep / steps);
+                }
+            }
+        }
+        
+        if (currentStep < steps) {
+            requestAnimationFrame(fade);
+        } else {
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    if (toRemove[r][c]) {
+                        grid[r][c] = { filled: false, isYellow: false, hasPointer: false, pointerType: 'black', opacity: 1, visualYOffset: 0 };
+                    }
+                }
+            }
+            calculateIslandGravity();
+        }
+    }
+    fade();
+}
+
+function calculateIslandGravity() {
+    gameState = 'gravitating';
+    let movementOccurred = false;
+
+    let supported = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
+    let queue = [];
+
     for (let c = 0; c < COLS; c++) {
-        let currentShift = 0;
-        for (let r = ROWS - 1; r >= 0; r--) {
-            if (grid[r][c].filled && toRemoveMap[r][c]) {
-                currentShift++;
-            } else if (grid[r][c].filled && !toRemoveMap[r][c]) {
-                if (currentShift > 0) {
-                    shiftGrid[r][c] = currentShift;
+        if (grid[ROWS - 1][c].filled) {
+            supported[ROWS - 1][c] = true;
+            queue.push({ r: ROWS - 1, c: c });
+        }
+    }
+
+    while (queue.length > 0) {
+        let curr = queue.shift();
+        let dirs = [{dr: -1, dc: 0}, {dr: 1, dc: 0}, {dr: 0, dc: -1}, {dr: 0, dc: 1}];
+        
+        for (let d of dirs) {
+            let nr = curr.r + d.dr;
+            let nc = curr.c + d.dc;
+            
+            if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
+                if (grid[nr][nc].filled && !supported[nr][nc]) {
+                    supported[nr][nc] = true;
+                    queue.push({ r: nr, c: nc });
                 }
             }
         }
     }
 
-    for (let r = ROWS - 1; r >= 0; r--) {
+    let blocksToMove = [];
+    for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
-            if (shiftGrid[r][c] > 0) {
-                moves.push({
-                    fromR: r,
-                    fromC: c,
-                    toR: r + shiftGrid[r][c],
-                    toC: c,
-                    currentYOffset: -shiftGrid[r][c] * BLOCK_SIZE,
-                    blockData: { ...grid[r][c], opacity: 1 }
-                });
+            if (grid[r][c].filled && !supported[r][c]) {
+                blocksToMove.push({ r: r, c: c });
             }
         }
     }
-    return moves;
+
+    if (blocksToMove.length > 0) {
+        let canDropAll = true;
+        for (let b of blocksToMove) {
+            let nextR = b.r + 1;
+            if (nextR >= ROWS) {
+                canDropAll = false;
+                break;
+            }
+            if (grid[nextR][b.c].filled && supported[nextR][b.c]) {
+                canDropAll = false;
+                break;
+            }
+        }
+
+        if (canDropAll) {
+            blocksToMove.sort((a, b) => b.r - a.r);
+            
+            for (let b of blocksToMove) {
+                grid[b.r + 1][b.c] = { ...grid[b.r][b.c] };
+                grid[b.r + 1][b.c].visualYOffset = -BLOCK_SIZE;
+                grid[b.r][b.c] = { filled: false, isYellow: false, hasPointer: false, pointerType: 'black', opacity: 1, visualYOffset: 0 };
+            }
+            movementOccurred = true;
+        }
+    }
+
+    if (movementOccurred) {
+        animateStructureDrop();
+    } else {
+        cascadeMultiplier = 1;
+        spawnPiece();
+    }
+}
+
+function animateStructureDrop() {
+    let animationSteps = 4;
+    let step = 0;
+
+    function slide() {
+        step++;
+        let done = true;
+        
+        for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+                if (grid[r][c].filled && grid[r][c].visualYOffset < 0) {
+                    grid[r][c].visualYOffset += BLOCK_SIZE / animationSteps;
+                    if (grid[r][c].visualYOffset > 0) grid[r][c].visualYOffset = 0;
+                    done = false;
+                }
+            }
+        }
+
+        if (!done && step < animationSteps) {
+            requestAnimationFrame(slide);
+        } else {
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    if (grid[r][c].filled) grid[r][c].visualYOffset = 0;
+                }
+            }
+            cascadeMultiplier++;
+            applyKeyMechanic();
+            checkMatch3Yellow();
+        }
+    }
+    slide();
+}
+
+function updateUI() {
+    level = Math.floor(score / 5000) + 1;
+    document.getElementById('score').innerText = score;
+    document.getElementById('level').innerText = level;
+    
+    let yellowTotal = 0;
+    grid.forEach(row => row.forEach(b => { if(b.isYellow) yellowTotal++; }));
+    document.getElementById('yellow-count').innerText = yellowTotal;
 }
 
 function draw() {
@@ -533,67 +619,30 @@ function draw() {
         ctx.beginPath(); ctx.moveTo(c * BLOCK_SIZE, 0); ctx.lineTo(c * BLOCK_SIZE, canvas.height); ctx.stroke();
     }
 
-    // Statische unbewegte Blöcke zeichnen
     for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
             if (grid[r][c].filled) {
-                // Wenn im Fade-Modus, überspringen wir das Zeichnen hier (wird separat gehandhabt)
-                let isFading = (gameState === 'fading' && currentFadeBlocks.some(b => b.r === r && b.c === c));
-                // Wenn im Gravitations-Modus und dieser Block fällt, überspringen wir ihn hier
-                let isMoving = (gameState === 'gravitating' && currentGravityMoves.some(m => m.fromR === r && m.fromC === c));
-
-                if (!isFading && !isMoving) {
-                    let color = grid[r][c].isYellow ? COLOR_PASTEL_YELLOW : COLOR_PASTEL_RED;
-                    let staticRot = 0; 
-                    if (grid[r][c].pointerType === 'blue') {
-                        if (grid[r][c].initialDir === 0) staticRot = Math.PI;
-                        if (grid[r][c].initialDir === 1) staticRot = 0;
-                        if (grid[r][c].initialDir === 2) staticRot = Math.PI / 2;
-                        if (grid[r][c].initialDir === 3) staticRot = -Math.PI / 2;
-                    }
-                    drawLocksmithBlock(ctx, c, r, color, grid[r][c].hasPointer, grid[r][c].pointerType, staticRot, 0, 0);
+                ctx.globalAlpha = grid[r][c].opacity;
+                let color = grid[r][c].isYellow ? COLOR_PASTEL_YELLOW : COLOR_PASTEL_RED;
+                
+                let staticRot = 0; 
+                if (grid[r][c].pointerType === 'blue') {
+                    if (grid[r][c].initialDir === 0) staticRot = Math.PI;
+                    if (grid[r][c].initialDir === 1) staticRot = 0;
+                    if (grid[r][c].initialDir === 2) staticRot = Math.PI / 2;
+                    if (grid[r][c].initialDir === 3) staticRot = -Math.PI / 2;
                 }
+                drawLocksmithBlock(ctx, c, r, color, grid[r][c].hasPointer, grid[r][c].pointerType, staticRot, 0, grid[r][c].visualYOffset);
             }
         }
     }
+    ctx.globalAlpha = 1.0;
 
-    // Fading Blöcke zeichnen
-    if (gameState === 'fading') {
-        currentFadeBlocks.forEach(b => {
-            let cell = grid[b.r][b.c];
-            ctx.globalAlpha = cell.opacity;
-            let color = cell.isYellow ? COLOR_PASTEL_YELLOW : COLOR_PASTEL_RED;
-            let staticRot = 0;
-            if (cell.pointerType === 'blue') {
-                if (cell.initialDir === 0) staticRot = Math.PI;
-                if (cell.initialDir === 1) staticRot = 0;
-                if (cell.initialDir === 2) staticRot = Math.PI / 2;
-                if (cell.initialDir === 3) staticRot = -Math.PI / 2;
-            }
-            drawLocksmithBlock(ctx, b.c, b.r, color, cell.hasPointer, cell.pointerType, staticRot, 0, 0);
-        });
-        ctx.globalAlpha = 1.0;
-    }
-
-    // Gravitation-Strukturfall animieren
-    if (gameState === 'gravitating') {
-        currentGravityMoves.forEach(m => {
-            let color = m.blockData.isYellow ? COLOR_PASTEL_YELLOW : COLOR_PASTEL_RED;
-            let staticRot = 0;
-            if (m.blockData.pointerType === 'blue') {
-                if (m.blockData.initialDir === 0) staticRot = Math.PI;
-                if (m.blockData.initialDir === 1) staticRot = 0;
-                if (m.blockData.initialDir === 2) staticRot = Math.PI / 2;
-                if (m.blockData.initialDir === 3) staticRot = -Math.PI / 2;
-            }
-            drawLocksmithBlock(ctx, m.fromC, m.fromR, color, m.blockData.hasPointer, m.blockData.pointerType, staticRot, 0, m.currentYOffset);
-        });
-    }
-
-    // Aktives fallendes Element zeichnen
     if (currentPiece && gameState === 'playing') {
         animX += (currentPiece.x - animX) * 0.3;
-        animY += (currentPiece.y - animY) * 0.4;
+        let fallLerpSpeed = isHardDropping ? 0.9 : (0.3 + level * 0.05);
+        animY += (currentPiece.y - animY) * Math.min(fallLerpSpeed, 0.95);
+        
         visualRotationOffset += (0 - visualRotationOffset) * 0.25;
 
         let size = currentPiece.matrix.length;
@@ -620,27 +669,23 @@ function draw() {
                         if (currentPiece.matrix[r][c].initialDir === 3) keyRot -= Math.PI / 2;
                     }
 
-                    drawLocksmithBlock(ctx, drawX, drawY, color, currentPiece.matrix[r][c].hasPointer, currentPiece.matrix[r][c].pointerType, keyRot, 0, 0);
+                    drawLocksmithBlock(ctx, drawX, drawY, color, currentPiece.matrix[r][c].hasPointer, currentPiece.matrix[r][c].pointerType, keyRot);
                 }
             }
         }
         ctx.restore();
     }
 
-    // Combo / Score Einblenden
-    if (comboTimer > 0) {
-        ctx.fillStyle = '#f2d984';
-        ctx.font = 'bold 20px Segoe UI';
+    if (comboTextOpacity > 0) {
+        ctx.fillStyle = `rgba(242, 217, 132, ${comboTextOpacity})`;
+        ctx.font = 'bold 22px Segoe UI';
         ctx.textAlign = 'center';
-        ctx.shadowColor = 'black';
-        ctx.shadowBlur = 4;
-        ctx.fillText(comboText, canvas.width / 2, 50);
-        ctx.shadowBlur = 0; // reset
-        comboTimer--;
+        ctx.fillText(comboText, canvas.width / 2, 80);
+        comboTextOpacity -= 0.015;
     }
 
     if (gameOver) {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = '#ff8b94';
         ctx.font = 'bold 30px Segoe UI';
@@ -665,9 +710,9 @@ function drawNext() {
     }
 }
 
-function drawLocksmithBlock(context, x, y, color, hasPointer, pointerType, keyRotation, pixelOffsetX, pixelOffsetY) {
-    let px = x * BLOCK_SIZE + pixelOffsetX;
-    let py = y * BLOCK_SIZE + pixelOffsetY;
+function drawLocksmithBlock(context, x, y, color, hasPointer, pointerType, keyRotation, pixelOffset = 0, yAnimateOffset = 0) {
+    let px = x * BLOCK_SIZE + pixelOffset;
+    let py = y * BLOCK_SIZE + pixelOffset + yAnimateOffset;
 
     context.fillStyle = color;
     context.fillRect(px, py, BLOCK_SIZE, BLOCK_SIZE);
@@ -701,77 +746,14 @@ let lastDropTime = Date.now();
 
 function gameLoop() {
     let now = Date.now();
-    
-    if (gameState === 'playing') {
+    let currentDropInterval = Math.max(1000 - (level - 1) * 150, 100);
+
+    if (gameState === 'playing' && currentPiece) {
         if (isHardDropping) {
             dropPiece();
-        } else if (now - lastDropTime > getDropInterval()) {
+        } else if (now - lastDropTime > currentDropInterval) {
             dropPiece();
             lastDropTime = now;
-        }
-    } else if (gameState === 'fading') {
-        let done = true;
-        currentFadeBlocks.forEach(b => {
-            grid[b.r][b.c].opacity -= 0.12;
-            if(grid[b.r][b.c].opacity > 0) done = false;
-        });
-        if(done) {
-            // Fading beendet -> Berechne exakte Struktur-Gravitation
-            let toRemoveMap = Array.from({length: ROWS}, () => Array(COLS).fill(false));
-            currentFadeBlocks.forEach(b => toRemoveMap[b.r][b.c] = true);
-            
-            currentGravityMoves = calculateStructureGravity(toRemoveMap);
-
-            // Gelöschte Zellen im echten Grid entfernen
-            currentFadeBlocks.forEach(b => {
-                grid[b.r][b.c] = { filled: false, isYellow: false, hasPointer: false, pointerType: 'black', initialDir: 1, opacity: 1 };
-            });
-
-            if (currentGravityMoves.length > 0) {
-                gameState = 'gravitating';
-            } else {
-                applyKeyMechanic();
-                cascadeMultiplier++;
-                processMatchEvaluation();
-            }
-        }
-    } else if (gameState === 'gravitating') {
-        let done = true;
-        currentGravityMoves.forEach(m => {
-            m.currentYOffset += 6; // Weiche Fallgeschwindigkeit (Pixel pro Frame)
-            let targetOffset = 0; // Relativ zur Start-Zeile fällt er bis zur Ziel-Zeile
-            let distPixel = (m.toR - m.fromR) * BLOCK_SIZE;
-            if (m.currentYOffset < 0) {
-                done = false;
-            }
-        });
-
-        if (done) {
-            // Alle fallenden Strukturen im echten Grid verankern
-            // Array rückwärts sortieren, um Überschreiben beim Verschieben nach unten zu vermeiden
-            let sortedMoves = [...currentGravityMoves].sort((a, b) => b.toR - a.toR);
-            
-            // Grid-Zellen leeren, von denen sich Strukturen wegbewegt haben
-            sortedMoves.forEach(m => {
-                grid[m.fromR][m.fromC] = { filled: false, isYellow: false, hasPointer: false, pointerType: 'black', initialDir: 1, opacity: 1 };
-            });
-
-            // Am Zielort setzen
-            sortedMoves.forEach(m => {
-                grid[m.toR][m.toC] = {
-                    filled: true,
-                    isYellow: m.blockData.isYellow,
-                    hasPointer: m.blockData.hasPointer,
-                    pointerType: m.blockData.pointerType,
-                    initialDir: m.blockData.initialDir,
-                    opacity: 1
-                };
-            });
-
-            currentGravityMoves = [];
-            applyKeyMechanic();
-            cascadeMultiplier++;
-            processMatchEvaluation();
         }
     }
     
@@ -790,7 +772,7 @@ window.addEventListener('keydown', e => {
     }
     if (e.key === ' ') {
         e.preventDefault();
-        startHardDrop();
+        if (!isHardDropping) isHardDropping = true;
     }
 });
 
