@@ -99,6 +99,7 @@
                 <p><span class="key">↑</span> : 4-Wege Rotation</p>
                 <p><span class="key">↓</span> : Sanfter Fall</p>
                 <p><span class="key">Space</span> : Hard Drop</p>
+                <p><span class="key">P</span> : Pausieren</p>
                 <hr style="border: 0; border-top: 1px solid #444; margin: 10px 0;">
                 <p style="font-size: 10px; color: #f2d984;">💡 <b>Regel:</b> Schwebende Inseln stürzen als starre Objekte ab. Höhlen und Tunnel bleiben beim Aufprall geschützt!</p>
             </div>
@@ -121,6 +122,8 @@ const COLOR_PASTEL_YELLOW = '#f2d984';
 let score = 0;
 let level = 1;
 let gameOver = false;
+let gamePaused = false;
+
 
 let grid = Array.from({ length: ROWS }, () => 
     Array.from({ length: COLS }, () => ({ filled: false, isYellow: false, hasPointer: false, pointerType: 'black', opacity: 1, visualYOffset: 0 }))
@@ -302,7 +305,11 @@ function moveRight() {
         currentPiece.x++;
     }
 }
-
+function pause() {
+    if (!gameOver) {
+        gamePaused = !gamePaused;
+    }
+}
 function dropPiece() {
     if (gameOver || gameState !== 'playing' || !currentPiece) return;
 
@@ -692,6 +699,15 @@ function draw() {
         ctx.textAlign = 'center';
         ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2);
     }
+    if (gamePaused) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#ff8b94';
+        ctx.font = 'bold 30px Segoe UI';
+        ctx.textAlign = 'center';
+        ctx.fillText("GAME PAUSED", canvas.width / 2, canvas.height / 2);
+    }
+    
 }
 
 function drawNext() {
@@ -748,12 +764,14 @@ function gameLoop() {
     let now = Date.now();
     let currentDropInterval = Math.max(1000 - (level - 1) * 150, 100);
 
+    if (!gamePaused){
     if (gameState === 'playing' && currentPiece) {
         if (isHardDropping) {
             dropPiece();
         } else if (now - lastDropTime > currentDropInterval) {
             dropPiece();
             lastDropTime = now;
+          }
         }
     }
     
@@ -767,6 +785,7 @@ window.addEventListener('keydown', e => {
     if (e.key === 'ArrowLeft') moveLeft();
     if (e.key === 'ArrowRight') moveRight();
     if (e.key === 'ArrowUp') rotatePiece();
+if (e.key === 'p') pause();
     if (e.key === 'ArrowDown') {
         dropPiece();
     }
