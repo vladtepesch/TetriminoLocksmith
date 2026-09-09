@@ -45,6 +45,13 @@
         }
         .info-box h3 { margin: 0 0 5px 0; font-size: 12px; text-transform: uppercase; color: #888; }
         .info-box p { margin: 0; font-size: 24px; font-weight: bold; }
+        #next-canvas {
+            background-color: #2c3e50;
+            border: 2px solid #34495e;
+            border-radius: 4px;
+            display: block;
+            margin-top: 5px;
+        }
         .controls-hint {
             font-size: 12px;
             color: #aaa;
@@ -77,6 +84,10 @@
                     <h3>Gelbe Blöcke</h3>
                     <p id="yellow-count">0</p>
                 </div>
+                <div class="info-box">
+                    <h3>Nächstes Teil</h3>
+                    <canvas id="next-canvas" width="120" height="120"></canvas>
+                </div>
             </div>
 
             <div class="controls-hint">
@@ -95,6 +106,9 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
+const nextCanvas = document.getElementById('next-canvas');
+const nextCtx = nextCanvas.getContext('2d');
+
 const ROWS = 20;
 const COLS = 10;
 const BLOCK_SIZE = 30;
@@ -105,12 +119,12 @@ const COLOR_PASTEL_YELLOW = '#f2d984';
 let score = 0;
 let gameOver = false;
 
-// Spielfeld-Matrix
+// Spielfeld-Matrix initialisieren
 let grid = Array.from({ length: ROWS }, () => 
     Array.from({ length: COLS }, () => ({ filled: false, isYellow: false, hasPointer: false, opacity: 1 }))
 );
 
-// Echte quadratische Boxen verhindern das Verspringen der Zeilen/Spalten beim Drehen
+// Echte quadratische Boxen. I-Teil exakt als 4x4-Matrix, damit der Pivot-Punkt stabil bleibt.
 const SHAPES = {
     I: [
         [0, 0, 0, 0],
@@ -150,18 +164,18 @@ const SHAPES = {
 };
 
 let currentPiece = null;
+let nextPiece = null;
 
 // Animations-Variablen
 let animX = 0;
 let animY = 0;
-let visualRotationOffset = 0; // Fängt den Dreh-Ruck auf und glättet ihn
+let visualRotationOffset = 0;
 let fadeAnimationActive = false;
-let isHardDropping = false;   // Steuert die schnelle Fall-Animation
+let isHardDropping = false;
 
 let lastDownKeyTime = 0;
 
-function spawnPiece() {
-    isHardDropping = false;
+function createPieceData() {
     const keys = Object.keys(SHAPES);
     const type = keys[Math.floor(Math.random() * keys.length)];
     const shapeMatrix = SHAPES[type];
@@ -183,12 +197,30 @@ function spawnPiece() {
         matrix[pick.r][pick.c].hasPointer = true;
     }
 
-    currentPiece = {
+    return {
         type: type,
-        matrix: matrix,
-        x: Math.floor((COLS - matrix.length) / 2),
+        matrix: matrix
+    };
+}
+
+function spawnPiece() {
+    isHardDropping = false;
+    
+    // Falls noch kein folgendes Teil existiert, erstelle es
+    if (!nextPiece) {
+        nextPiece = createPieceData();
+    }
+    
+    // Aktuelles Teil wird das bisherige nächste Teil
+    currentPiece = {
+        type: nextPiece.type,
+        matrix: nextPiece.matrix,
+        x: Math.floor((COLS - nextPiece.matrix.length) / 2),
         y: 0
     };
+    
+    // Neues nächstes Teil generieren
+    nextPiece = createPieceData();
 
     animX = currentPiece.x;
     animY = currentPiece.y;
@@ -197,6 +229,8 @@ function spawnPiece() {
     if (checkCollision(currentPiece.x, currentPiece.y, currentPiece.matrix)) {
         gameOver = true;
     }
+    
+    drawNextPiece();
 }
 
 function checkCollision(ax, ay, matrix) {
@@ -229,7 +263,6 @@ function rotatePiece() {
     const nextMatrix = rotateMatrix(currentPiece.matrix);
     if (!checkCollision(currentPiece.x, currentPiece.y, nextMatrix)) {
         currentPiece.matrix = nextMatrix;
-        // Setzt den visuellen Versatz zurück, um eine flüssige 90°-Drehung zu animieren
         visualRotationOffset -= Math.PI / 2;
     }
 }
@@ -424,7 +457,7 @@ function draw() {
             if (grid[r][c].filled) {
                 ctx.globalAlpha = grid[r][c].opacity;
                 let color = grid[r][c].isYellow ? COLOR_PASTEL_YELLOW : COLOR_PASTEL_RED;
-                drawLocksmithBlock(c, r, color, grid[r][c].hasPointer, 0);
+                drawBlockGeneric(ctx, c, r, color, grid[r][c].hasPointer, 0, BLOCK_SIZE);
             }
         }
     }
@@ -432,18 +465,14 @@ function draw() {
 
     // Aktives fallendes Element zeichnen
     if (currentPiece && !fadeAnimationActive) {
-        // Flüssiger Positions-Lerp
         animX += (currentPiece.x - animX) * 0.3;
         animY += (currentPiece.y - animY) * 0.4;
-        
-        // Rotations-Glättung lerpt sanft zurück gegen 0
         visualRotationOffset += (0 - visualRotationOffset) * 0.25;
 
         let size = currentPiece.matrix.length;
         let centerOffset = size / 2;
 
         ctx.save();
-        // Pivot-Punkt liegt absolut exakt im Gittermittelpunkt des Quadrats
         ctx.translate((animX + centerOffset) * BLOCK_SIZE, (animY + centerOffset) * BLOCK_SIZE);
         ctx.rotate(visualRotationOffset);
 
@@ -457,8 +486,7 @@ function draw() {
                     let logicY = currentPiece.y + r;
                     let color = isFallingBlockYellowRealtime(logicX, logicY) ? COLOR_PASTEL_YELLOW : COLOR_PASTEL_RED;
 
-                    // Das Schlüsselloch bleibt unbeeinflusst von der visuellen Drehung starr nach unten ausgerichtet
-                    drawLocksmithBlock(drawX, drawY, color, currentPiece.matrix[r][c].hasPointer, -visualRotationOffset);
+                    drawBlockGeneric(ctx, drawX, drawY, color, currentPiece.matrix[r][c].hasPointer, -visualRotationOffset, BLOCK_SIZE);
                 }
             }
         }
@@ -475,31 +503,81 @@ function draw() {
     }
 }
 
-function drawLocksmithBlock(x, y, color, hasPointer, customRotation) {
-    let px = x * BLOCK_SIZE;
-    let py = y * BLOCK_SIZE;
+// Zeichnet das nächste kommende Teil in der Sidebar-Box vor
+function drawNextPiece() {
+    nextCtx.clearRect(0, 0, nextCanvas.width, nextCanvas.height);
+    if (!nextPiece) return;
 
-    ctx.fillStyle = color;
-    ctx.fillRect(px, py, BLOCK_SIZE, BLOCK_SIZE);
+    let size = nextPiece.matrix.length;
+    let boxSize = 22; // Etwas kleinere Blöcke für die Vorschau-Box
+    
+    // Zentrierungs-Offsets berechnen
+    let totalWidth = size * boxSize;
+    let offsetX = (nextCanvas.width - totalWidth) / 2;
+    let offsetY = (nextCanvas.height - totalWidth) / 2;
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(px + 1, py + 1, BLOCK_SIZE - 2, BLOCK_SIZE - 2);
+    // Spezielle Korrektur für das I-Teil und O-Teil, um sie optisch exakt mittig in der Box darzustellen
+    if (nextPiece.type === 'I') offsetY += 10;
+    if (nextPiece.type === 'O') { offsetX += 11; offsetY += 11; }
+
+    for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+            if (nextPiece.matrix[r][c].active) {
+                let px = offsetX + c * boxSize;
+                let py = offsetY + r * boxSize;
+
+                // Nächstes Teil startet immer voll in Pastel-Inaktiv-Rot
+                nextCtx.fillStyle = COLOR_PASTEL_RED;
+                nextCtx.fillRect(px, py, boxSize, boxSize);
+
+                nextCtx.strokeStyle = 'rgba(255,255,255,0.15)';
+                nextCtx.lineWidth = 1;
+                nextCtx.strokeRect(px + 1, py + 1, boxSize - 2, boxSize - 2);
+
+                if (nextPiece.matrix[r][c].hasPointer) {
+                    nextCtx.save();
+                    nextCtx.translate(px + boxSize / 2, py + boxSize / 2);
+
+                    nextCtx.fillStyle = '#1a1a24';
+                    nextCtx.beginPath();
+                    let cy = boxSize / 2 - 7; 
+                    nextCtx.arc(0, cy, 3, 0, Math.PI * 2);
+                    nextCtx.rect(-1.5, cy, 3, 8);
+                    nextCtx.fill();
+                    
+                    nextCtx.restore();
+                }
+            }
+        }
+    }
+}
+
+// Universelle, saubere Zeichenfunktion für Blöcke
+function drawBlockGeneric(context, x, y, color, hasPointer, customRotation, size) {
+    let px = x * size;
+    let py = y * size;
+
+    context.fillStyle = color;
+    context.fillRect(px, py, size, size);
+
+    context.strokeStyle = 'rgba(255,255,255,0.2)';
+    context.lineWidth = 1;
+    context.strokeRect(px + 1, py + 1, size - 2, size - 2);
 
     if (hasPointer) {
-        ctx.save();
-        ctx.translate(px + BLOCK_SIZE / 2, py + BLOCK_SIZE / 2);
-        ctx.rotate(customRotation);
+        context.save();
+        context.translate(px + size / 2, py + size / 2);
+        context.rotate(customRotation);
 
-        ctx.fillStyle = '#1a1a24';
-        ctx.beginPath();
+        context.fillStyle = '#1a1a24';
+        context.beginPath();
         
-        let cy = BLOCK_SIZE / 2 - 10; 
-        ctx.arc(0, cy, 4, 0, Math.PI * 2);
-        ctx.rect(-2, cy, 4, 12);
+        let cy = size / 2 - 10; 
+        context.arc(0, cy, 4, 0, Math.PI * 2);
+        context.rect(-2, cy, 4, 12);
         
-        ctx.fill();
-        ctx.restore();
+        context.fill();
+        context.restore();
     }
 }
 
@@ -509,7 +587,6 @@ const dropInterval = 1000;
 function gameLoop() {
     let now = Date.now();
     
-    // Wenn Hard Drop aktiv ist, fällt der Block extrem schnell animiert nach unten (30 Reihen pro Sekunde)
     if (isHardDropping) {
         dropPiece();
     } else if (now - lastDropTime > dropInterval) {
