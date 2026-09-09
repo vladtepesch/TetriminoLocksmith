@@ -84,7 +84,7 @@
                 <p><span class="key">←</span> <span class="key">→</span> : Bewegen</p>
                 <p><span class="key">↑</span> : Rotieren</p>
                 <p><span class="key">↓</span> : Sanfter Fall</p>
-                <p><span class="key">Space</span> / <span class="key">Doppel-↓</span> : Hard Drop</p>
+                <p><span class="key">Space</span> / <span class="key">Doppel-↓</span> : Hard Drop (Animiert)</p>
                 <hr style="border: 0; border-top: 1px solid #444; margin: 10px 0;">
                 <p style="font-size: 11px; color: #f2d984;">💡 <b>Regel:</b> Mindestens 3 nebeneinanderliegende gelbe Blöcke lösen sich auf!</p>
             </div>
@@ -105,12 +105,11 @@ const COLOR_PASTEL_YELLOW = '#f2d984';
 let score = 0;
 let gameOver = false;
 
-// Spielfeld-Matrix initialisieren
 let grid = Array.from({ length: ROWS }, () => 
     Array.from({ length: COLS }, () => ({ filled: false, isYellow: false, hasPointer: false, opacity: 1 }))
 );
 
-// Definitionen der 7 klassischen Formen (Matrizen)
+// Korrekte 4x4 und 3x3 Matrizen für fehlerfreie Tetris-Rotationen
 const SHAPES = {
     I: [
         [0, 0, 0, 0],
@@ -151,14 +150,14 @@ const SHAPES = {
 
 let currentPiece = null;
 
-// Variablen für die Positions- und Rotations-Interpolation
+// Animations-Variablen
 let animX = 0;
 let animY = 0;
 let animAngle = 0;
 let targetAngle = 0;
 let fadeAnimationActive = false;
+let isHardDropping = false;
 
-// Zeitstempel für Doppelklick-Erkennung bei ArrowDown
 let lastDownKeyTime = 0;
 
 function spawnPiece() {
@@ -175,7 +174,6 @@ function spawnPiece() {
         })
     );
 
-    // Mindestens ein Schlüsselloch garantieren
     let hasAnyPointer = matrix.some(row => row.some(b => b.hasPointer));
     if (!hasAnyPointer) {
         let validBlocks = [];
@@ -195,6 +193,7 @@ function spawnPiece() {
     animY = currentPiece.y;
     animAngle = 0;
     targetAngle = 0;
+    isHardDropping = false;
 
     if (checkCollision(currentPiece.x, currentPiece.y, currentPiece.matrix)) {
         gameOver = true;
@@ -215,8 +214,8 @@ function checkCollision(ax, ay, matrix) {
     return false;
 }
 
-// Rotiert im Uhrzeigersinn
-function rotateMatrix(matrix) {
+// Dreht die logische Matrix im Uhrzeigersinn
+function rotateMatrixClockwise(matrix) {
     const n = matrix.length;
     let newMatrix = Array.from({ length: n }, () => Array(n).fill(null));
     for (let r = 0; r < n; r++) {
@@ -228,28 +227,29 @@ function rotateMatrix(matrix) {
 }
 
 function rotatePiece() {
-    if (!currentPiece || fadeAnimationActive) return;
-    const nextMatrix = rotateMatrix(currentPiece.matrix);
+    if (!currentPiece || fadeAnimationActive || isHardDropping) return;
+    const nextMatrix = rotateMatrixClockwise(currentPiece.matrix);
     if (!checkCollision(currentPiece.x, currentPiece.y, nextMatrix)) {
         currentPiece.matrix = nextMatrix;
+        // Da die Matrix im Uhrzeigersinn gedreht wird, muss auch der visuelle Winkel positiv erhöht werden
         targetAngle += Math.PI / 2; 
     }
 }
 
 function moveLeft() {
-    if (currentPiece && !checkCollision(currentPiece.x - 1, currentPiece.y, currentPiece.matrix) && !fadeAnimationActive) {
+    if (currentPiece && !checkCollision(currentPiece.x - 1, currentPiece.y, currentPiece.matrix) && !fadeAnimationActive && !isHardDropping) {
         currentPiece.x--;
     }
 }
 
 function moveRight() {
-    if (currentPiece && !checkCollision(currentPiece.x + 1, currentPiece.y, currentPiece.matrix) && !fadeAnimationActive) {
+    if (currentPiece && !checkCollision(currentPiece.x + 1, currentPiece.y, currentPiece.matrix) && !fadeAnimationActive && !isHardDropping) {
         currentPiece.x++;
     }
 }
 
 function dropPiece() {
-    if (gameOver || fadeAnimationActive || !currentPiece) return;
+    if (gameOver || fadeAnimationActive || !currentPiece || isHardDropping) return;
 
     if (!checkCollision(currentPiece.x, currentPiece.y + 1, currentPiece.matrix)) {
         currentPiece.y++;
@@ -260,14 +260,10 @@ function dropPiece() {
     }
 }
 
-function hardDrop() {
-    if (gameOver || fadeAnimationActive || !currentPiece) return;
-    while (!checkCollision(currentPiece.x, currentPiece.y + 1, currentPiece.matrix)) {
-        currentPiece.y++;
-    }
-    lockPiece();
-    applyKeyMechanic();
-    checkMatch3Yellow();
+// Triggert den schnell animierten Hard Drop
+function triggerHardDrop() {
+    if (gameOver || fadeAnimationActive || !currentPiece || isHardDropping) return;
+    isHardDropping = true;
 }
 
 function lockPiece() {
@@ -288,6 +284,7 @@ function lockPiece() {
         }
     }
     currentPiece = null;
+    isHardDropping = false;
 }
 
 function isFallingBlockYellowRealtime(gridX, gridY) {
@@ -424,7 +421,7 @@ function draw() {
         ctx.beginPath(); ctx.moveTo(c * BLOCK_SIZE, 0); ctx.lineTo(c * BLOCK_SIZE, canvas.height); ctx.stroke();
     }
 
-    // Grid auf dem Spielfeld zeichnen
+    // Grid zeichnen
     for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
             if (grid[r][c].filled) {
@@ -438,32 +435,53 @@ function draw() {
 
     // Aktives fallendes Element zeichnen
     if (currentPiece && !fadeAnimationActive) {
-        animX += (currentPiece.x - animX) * 0.3;
-        animY += (currentPiece.y - animY) * 0.3;
-        animAngle += (targetAngle - animAngle) * 0.3;
-
-        let size = currentPiece.matrix.length;
-        let centerOffset = size / 2;
-
-        ctx.save();
-        ctx.translate((animX + centerOffset) * BLOCK_SIZE, (animY + centerOffset) * BLOCK_SIZE);
-        ctx.rotate(animAngle);
-
-        for (let r = 0; r < size; r++) {
-            for (let c = 0; c < size; c++) {
-                if (currentPiece.matrix[r][c].active) {
-                    let drawX = c - centerOffset;
-                    let drawY = r - centerOffset;
-
-                    let logicX = currentPiece.x + c;
-                    let logicY = currentPiece.y + r;
-                    let color = isFallingBlockYellowRealtime(logicX, logicY) ? COLOR_PASTEL_YELLOW : COLOR_PASTEL_RED;
-
-                    drawLocksmithBlock(drawX, drawY, color, currentPiece.matrix[r][c].hasPointer, -animAngle);
+        // Wenn Hard Drop aktiv ist, fällt das Element extrem schnell visuell nach unten
+        if (isHardDropping) {
+            if (!checkCollision(currentPiece.x, currentPiece.y + 1, currentPiece.matrix)) {
+                currentPiece.y += 1.5; // Schneller Logik-Vorschub pro Animations-Frame
+                if (checkCollision(currentPiece.x, Math.floor(currentPiece.y) + 1, currentPiece.matrix)) {
+                    currentPiece.y = Math.floor(currentPiece.y);
+                    lockPiece();
+                    applyKeyMechanic();
+                    checkMatch3Yellow();
                 }
+            } else {
+                lockPiece();
+                applyKeyMechanic();
+                checkMatch3Yellow();
             }
         }
-        ctx.restore();
+
+        // Standard Interpolation für normale Bewegungen
+        if (currentPiece) { // Sicherheitsprüfung, falls oben gelockt wurde
+            animX += (currentPiece.x - animX) * 0.3;
+            animY += (currentPiece.y - animY) * 0.4; // Etwas schneller bei vertikalem Fall
+            animAngle += (targetAngle - animAngle) * 0.25;
+
+            let size = currentPiece.matrix.length;
+            let centerOffset = size / 2;
+
+            ctx.save();
+            ctx.translate((animX + centerOffset) * BLOCK_SIZE, (animY + centerOffset) * BLOCK_SIZE);
+            ctx.rotate(animAngle);
+
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    if (currentPiece.matrix[r][c].active) {
+                        let drawX = c - centerOffset;
+                        let drawY = r - centerOffset;
+
+                        let logicX = currentPiece.x + c;
+                        let logicY = currentPiece.y + r;
+                        let color = isFallingBlockYellowRealtime(logicX, logicY) ? COLOR_PASTEL_YELLOW : COLOR_PASTEL_RED;
+
+                        // Die Eigenrotation des Canvas wird hier aufgehoben, damit Schlüssellöcher immer nach unten zeigen
+                        drawLocksmithBlock(drawX, drawY, color, currentPiece.matrix[r][c].hasPointer, -animAngle);
+                    }
+                }
+            }
+            ctx.restore();
+        }
     }
 
     if (gameOver) {
@@ -509,7 +527,7 @@ const dropInterval = 1000;
 
 function gameLoop() {
     let now = Date.now();
-    if (now - lastDropTime > dropInterval) {
+    if (now - lastDropTime > dropInterval && !isHardDropping) {
         dropPiece();
         lastDropTime = now;
     }
@@ -518,7 +536,7 @@ function gameLoop() {
 }
 
 window.addEventListener('keydown', e => {
-    if (gameOver || fadeAnimationActive) return;
+    if (gameOver || fadeAnimationActive || isHardDropping) return;
     
     if (e.key === 'ArrowLeft') moveLeft();
     if (e.key === 'ArrowRight') moveRight();
@@ -527,7 +545,7 @@ window.addEventListener('keydown', e => {
     if (e.key === 'ArrowDown') {
         let currentTime = Date.now();
         if (currentTime - lastDownKeyTime < 250 && !e.repeat) {
-            hardDrop();
+            triggerHardDrop();
         } else {
             dropPiece();
             score += 1;
@@ -538,7 +556,7 @@ window.addEventListener('keydown', e => {
     
     if (e.key === ' ') {
         e.preventDefault();
-        hardDrop();
+        triggerHardDrop();
     }
 });
 
