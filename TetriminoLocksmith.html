@@ -132,7 +132,7 @@
             background-color: #1a1a24;
         }
         #pointer.blue{
-            background-color: #10216b;
+            background-color: #142985;
         }
     </style>
 </head>
@@ -973,15 +973,40 @@ function drawPointer(context, x, y, pointerType, keyRotation, pixelOffset = 0, y
     context.rotate(keyRotation);
 
     context.fillStyle = pointerType === 'blue' ? COLOR_POINTER_BLUE : COLOR_POINTER_BLACK;
+    context.strokeStyle = pointerType === 'blue' ? COLOR_POINTER_BLUE : COLOR_POINTER_BLACK;
+    context.beginPath();
+    context.lineWidth  = 1;
+    context.arc(0, 0, 6, 0, Math.PI * 2, false);
+    context.arc(0, -3, 2, 0, Math.PI * 2, true);
+    context.fill();
+    context.beginPath();
+    context.moveTo(-3, 3);  
+    context.lineWidth  = 1;
+    context.lineTo(-3, BLOCK_SIZE /2 + 5);
+    context.lineTo(0,  BLOCK_SIZE /2 + 8);
+    context.lineTo(1+2, BLOCK_SIZE /2 + 5);
+    context.lineTo(1+0, BLOCK_SIZE /2 );
+    context.lineTo(1+1, BLOCK_SIZE /2 -3);
+    context.lineTo(1+0, BLOCK_SIZE /2 -7);
+    context.lineTo(1+2, BLOCK_SIZE /2 -10);
+    context.lineTo(2, 3);
+    //context.closePath();
+    //context.stroke();
+    context.fill();
+
+    context.restore();
+    return;
+
+    context.fillStyle = pointerType === 'blue' ? COLOR_POINTER_BLUE : COLOR_POINTER_BLACK;
     context.beginPath();
     context.arc(0, 0, lockRadius, 0, Math.PI * 2);
     context.fill();
 
     //context.fillStyle = '#1a1a24';
-    context.beginPath();
-    context.arc(0, 0, lockRadiusInner, 0, Math.PI * 2);
-    context.closePath();
-    context.fill();
+    //context.beginPath();
+    //context.arc(0, 0, lockRadiusInner, 0, Math.PI * 2);
+    //context.closePath();
+    //context.fill();
 
     //   (  )
     //    ##
