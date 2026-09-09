@@ -34,7 +34,7 @@
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            width: 180px;
+            width: 190px;
         }
         .info-box {
             background: #1e1e2f;
@@ -83,7 +83,8 @@
                 <h3>Steuerung:</h3>
                 <p><span class="key">←</span> <span class="key">→</span> : Bewegen</p>
                 <p><span class="key">↑</span> : Rotieren</p>
-                <p><span class="key">↓</span> : Schneller Fall</p>
+                <p><span class="key">↓</span> : Sanfter Fall</p>
+                <p><span class="key">Space</span> / <span class="key">Doppel-↓</span> : Hard Drop</p>
                 <hr style="border: 0; border-top: 1px solid #444; margin: 10px 0;">
                 <p style="font-size: 11px; color: #f2d984;">💡 <b>Regel:</b> Mindestens 3 nebeneinanderliegende gelbe Blöcke lösen sich auf!</p>
             </div>
@@ -109,19 +110,52 @@ let grid = Array.from({ length: ROWS }, () =>
 );
 
 const SHAPES = {
-    I: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
-    J: [[1,0,0],[1,1,1],[0,0,0]],
-    L: [[0,0,1],[1,1,1],[0,0,0]],
-    O: [[1,1],[1,1]],
-    S: [[0,1,1],[1,1,0],[0,0,0]],
-    Z: [[1,1,0],[0,1,1],[0,0,0]],
-    T: [[0,1,0],[1,1,1],[0,0,0]]
+    I: [
+        [0,0,0,0],
+        [1,1,1,1],
+        [0,0,0,0],
+        [0,0,0,0]
+    ],
+    J: [
+        [1,0,0],
+        [1,1,1],
+        [0,0,0]
+    ],
+    L: [
+        [0,0,1],
+        [1,1,1],
+        [0,0,0]
+    ],
+    O: [
+        [1,1],
+        [1,1]
+    ],
+    S: [
+        [0,1,1],
+        [1,1,0],
+        [0,0,0]
+    ],
+    Z: [
+        [1,1,0],
+        [0,1,1],
+        [0,0,0]
+    ],
+    T: [
+        [0,1,0],
+        [1,1,1],
+        [0,0,0]
+    ]
 };
 
 let currentPiece = null;
+
 let animX = 0;
 let animY = 0;
+let animAngle = 0;
+let targetAngle = 0;
 let fadeAnimationActive = false;
+
+let lastDownKeyTime = 0;
 
 function spawnPiece() {
     const keys = Object.keys(SHAPES);
@@ -154,6 +188,8 @@ function spawnPiece() {
 
     animX = currentPiece.x;
     animY = currentPiece.y;
+    animAngle = 0;
+    targetAngle = 0;
 
     if (checkCollision(currentPiece.x, currentPiece.y, currentPiece.matrix)) {
         gameOver = true;
@@ -190,6 +226,7 @@ function rotatePiece() {
     const nextMatrix = rotateMatrix(currentPiece.matrix);
     if (!checkCollision(currentPiece.x, currentPiece.y, nextMatrix)) {
         currentPiece.matrix = nextMatrix;
+        targetAngle += Math.PI / 2;
     }
 }
 
@@ -215,6 +252,16 @@ function dropPiece() {
         applyKeyMechanic();
         checkMatch3Yellow();
     }
+}
+
+function hardDrop() {
+    if (gameOver || fadeAnimationActive || !currentPiece) return;
+    while (!checkCollision(currentPiece.x, currentPiece.y + 1, currentPiece.matrix)) {
+        currentPiece.y++;
+    }
+    lockPiece();
+    applyKeyMechanic();
+    checkMatch3Yellow();
 }
 
 function lockPiece() {
@@ -304,7 +351,7 @@ function checkMatch3Yellow() {
 }
 
 function animateRowDisappearance(toRemove) {
-    let steps = 10;
+    let steps = 8;
     let currentStep = 0;
     
     function fade() {
@@ -318,7 +365,7 @@ function animateRowDisappearance(toRemove) {
         }
         
         if (currentStep < steps) {
-            setTimeout(fade, 30);
+            requestAnimationFrame(fade);
         } else {
             let removedBlocks = 0;
             for (let r = 0; r < ROWS; r++) {
@@ -335,6 +382,7 @@ function animateRowDisappearance(toRemove) {
             applyGravity();
             applyKeyMechanic();
             fadeAnimationActive = false;
+            
             checkMatch3Yellow();
         }
     }
@@ -347,7 +395,7 @@ function applyGravity() {
             if (!grid[r][c].filled) {
                 for (let kr = r - 1; kr >= 0; kr--) {
                     if (grid[kr][c].filled) {
-                        grid[r][c] = grid[kr][c];
+                        grid[r][c] = { ...grid[kr][c] };
                         grid[kr][c] = { filled: false, isYellow: false, hasPointer: false, opacity: 1 };
                         break;
                     }
@@ -374,30 +422,39 @@ function draw() {
             if (grid[r][c].filled) {
                 ctx.globalAlpha = grid[r][c].opacity;
                 let color = grid[r][c].isYellow ? COLOR_PASTEL_YELLOW : COLOR_PASTEL_RED;
-                drawLocksmithBlock(c, r, color, grid[r][c].hasPointer);
+                drawLocksmithBlock(c, r, color, grid[r][c].hasPointer, 0);
             }
         }
     }
     ctx.globalAlpha = 1.0;
 
     if (currentPiece && !fadeAnimationActive) {
-        animX += (currentPiece.x - animX) * 0.25;
-        animY += (currentPiece.y - animY) * 0.25;
+        animX += (currentPiece.x - animX) * 0.3;
+        animY += (currentPiece.y - animY) * 0.3;
+        animAngle += (targetAngle - animAngle) * 0.3;
 
-        for (let r = 0; r < currentPiece.matrix.length; r++) {
-            for (let c = 0; c < currentPiece.matrix[r].length; c++) {
+        let size = currentPiece.matrix.length;
+        let centerOffset = size / 2;
+
+        ctx.save();
+        ctx.translate((animX + centerOffset) * BLOCK_SIZE, (animY + centerOffset) * BLOCK_SIZE);
+        ctx.rotate(animAngle);
+
+        for (let r = 0; r < size; r++) {
+            for (let c = 0; c < size; c++) {
                 if (currentPiece.matrix[r][c].active) {
-                    let worldX = animX + c;
-                    let worldY = animY + r;
+                    let drawX = c - centerOffset;
+                    let drawY = r - centerOffset;
 
                     let logicX = currentPiece.x + c;
                     let logicY = currentPiece.y + r;
                     let color = isFallingBlockYellowRealtime(logicX, logicY) ? COLOR_PASTEL_YELLOW : COLOR_PASTEL_RED;
 
-                    drawLocksmithBlock(worldX, worldY, color, currentPiece.matrix[r][c].hasPointer);
+                    drawLocksmithBlock(drawX, drawY, color, currentPiece.matrix[r][c].hasPointer, -animAngle);
                 }
             }
         }
+        ctx.restore();
     }
 
     if (gameOver) {
@@ -410,27 +467,31 @@ function draw() {
     }
 }
 
-function drawLocksmithBlock(x, y, color, hasPointer) {
+function drawLocksmithBlock(x, y, color, hasPointer, customRotation) {
     let px = x * BLOCK_SIZE;
     let py = y * BLOCK_SIZE;
 
     ctx.fillStyle = color;
     ctx.fillRect(px, py, BLOCK_SIZE, BLOCK_SIZE);
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
     ctx.lineWidth = 1;
     ctx.strokeRect(px + 1, py + 1, BLOCK_SIZE - 2, BLOCK_SIZE - 2);
 
     if (hasPointer) {
+        ctx.save();
+        ctx.translate(px + BLOCK_SIZE / 2, py + BLOCK_SIZE / 2);
+        ctx.rotate(customRotation);
+
         ctx.fillStyle = '#1a1a24';
-        
         ctx.beginPath();
-        let centerX = px + BLOCK_SIZE / 2;
-        let centerY = py + BLOCK_SIZE - 10;
-        let radius = 4;
-        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-        ctx.rect(centerX - 2, centerY, 4, 12);
+        
+        let cy = BLOCK_SIZE / 2 - 10; 
+        ctx.arc(0, cy, 4, 0, Math.PI * 2);
+        ctx.rect(-2, cy, 4, 12);
+        
         ctx.fill();
+        ctx.restore();
     }
 }
 
@@ -449,10 +510,27 @@ function gameLoop() {
 
 window.addEventListener('keydown', e => {
     if (gameOver || fadeAnimationActive) return;
+    
     if (e.key === 'ArrowLeft') moveLeft();
     if (e.key === 'ArrowRight') moveRight();
     if (e.key === 'ArrowUp') rotatePiece();
-    if (e.key === 'ArrowDown') { dropPiece(); score += 1; document.getElementById('score').innerText = score; }
+    
+    if (e.key === 'ArrowDown') {
+        let currentTime = Date.now();
+        if (currentTime - lastDownKeyTime < 250 && !e.repeat) {
+            hardDrop();
+        } else {
+            dropPiece();
+            score += 1;
+            document.getElementById('score').innerText = score;
+        }
+        lastDownKeyTime = currentTime;
+    }
+    
+    if (e.key === ' ') {
+        e.preventDefault();
+        hardDrop();
+    }
 });
 
 spawnPiece();
