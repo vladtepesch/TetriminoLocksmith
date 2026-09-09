@@ -151,7 +151,7 @@ let gamePaused = false;
 
 
 let grid = Array.from({ length: ROWS }, () => 
-    Array.from({ length: COLS }, () => ({ filled: false, isYellow: false, hasPointer: false, pointerType: 'black', opacity: 1, visualYOffset: 0 }))
+    Array.from({ length: COLS }, () => ({ filled: false, isYellow: false, hasPointer: false, pointerType: 'black', opacity: 1, visualYOffset: 0}))
 );
 
 const SHAPES = {
@@ -363,7 +363,7 @@ function lockPiece() {
                         pointerType: currentPiece.matrix[r][c].pointerType,
                         initialDir: currentPiece.matrix[r][c].initialDir,
                         opacity: 1,
-                        visualYOffset: 0
+                        visualYOffset: 0,
                     };
                     placedBlocksCount++;
                 }
@@ -515,94 +515,136 @@ function animateRowDisappearance(toRemove) {
                     }
                 }
             }
-            calculateIslandGravity();
+            calculateIslandGravity(toRemove);
         }
     }
     fade();
 }
+function printGrid (){
+  let s = '';
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if(grid[r][c].filled){
+        if(grid[r][c].comp>=0){
+          s += '['+ grid[r][c].comp + "]";
+        }else{
+          s += '[:]';
+        }
+      }else{
+       s += '[ ]';
+      }
+    }
+    s += "\n";
+  }
+  console.log(s);
+}
 
-function calculateIslandGravity() {
+function calculateIslandGravity(toRemove) {
     gameState = 'gravitating';
     let movementOccurred = false;
-
-    let supported = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
-    let queue = [];
-
-    for (let c = 0; c < COLS; c++) {
-        if (grid[ROWS - 1][c].filled) {
-            supported[ROWS - 1][c] = true;
-            queue.push({ r: ROWS - 1, c: c });
-        }
+    
+    // contains the r from which above between grid[r][c] and grid[r][c+1] is a virtual cut
+    // that does not count as connected to neighbor
+    let cuts = Array(COLS -1 ).fill(0);
+    for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+            if(toRemove[r][c]){
+              let start = c;
+              while(c < COLS && toRemove[r][c]){
+                c++;
+              }
+              --c;
+              if(start>0){
+                cuts[start-1] = Math.max(r, cuts[start-1]);
+              }
+              if(c < (COLS-1)){
+                  cuts[c] = Math.max(r, cuts[c]);
+              }
+            }
+        }        
     }
 
-    while (queue.length > 0) {
-        let curr = queue.shift();
-        let dirs = [{dr: -1, dc: 0}, {dr: 1, dc: 0}, {dr: 0, dc: -1}, {dr: 0, dc: 1}];
-        
-        for (let d of dirs) {
-            let nr = curr.r + d.dr;
-            let nc = curr.c + d.dc;
+    // reset connected component index
+    for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+            if(grid[r][c].filled){
+                grid[r][c].comp = -1;
+            }
+        }
+    }
+    
+    let queue = [];
+    
+    // push bottom row elements into 0-group
+    for (let c = 0; c < COLS; c++) {
+        if (grid[ROWS - 1][c].filled) {
+            if(grid[ROWS - 1][c].filled){
+                queue.push({ r: ROWS - 1, c: c });
+            }
+        }
+    }
+    
+    let curComponent = 0;
+    do {
+
+        //console.log("curComponent="+ curComponent);
+        // flood fill to find connected components
+        while (queue.length > 0) {
+            let curr = queue.shift();
+            grid[curr.r][curr.c].comp = curComponent;
+            grid[curr.r][curr.c].comp = curComponent;
+
+            let dirs = [{dr: -1, dc: 0}, {dr: 1, dc: 0}, {dr: 0, dc: -1}, {dr: 0, dc: 1}];
             
-            if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
-                if (grid[nr][nc].filled && !supported[nr][nc]) {
-                    supported[nr][nc] = true;
-                    queue.push({ r: nr, c: nc });
+            for (let d of dirs) {
+                let nr = curr.r + d.dr;
+                let nc = curr.c + d.dc;
+        
+                if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
+                    if(grid[nr][nc].comp >= 0){
+                      continue;
+                    }
+                    let minc = Math.min(curr.c, nc);
+                    if (curr.c != nc && minc < (COLS -1)&&  cuts[minc] >= nr){
+                      // skip  
+                    } else if (grid[nr][nc].filled ) {
+                        queue.push({ r: nr, c: nc });
+                    }
                 }
             }
         }
-    }
-
-    let blocksToMove = [];
-    for (let r = 0; r < ROWS; r++) {
-        for (let c = 0; c < COLS; c++) {
-            if (grid[r][c].filled && !supported[r][c]) {
-                blocksToMove.push({ r: r, c: c });
-            }
-        }
-    }
-
-    if (blocksToMove.length > 0) {
-        let canDropAll = true;
-        for (let b of blocksToMove) {
-            let nextR = b.r + 1;
-            if (nextR >= ROWS) {
-                canDropAll = false;
-                break;
-            }
-            if (grid[nextR][b.c].filled && supported[nextR][b.c]) {
-                canDropAll = false;
+        // search for currently unconnected components and put them as starting point for next flood fill
+        for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+                if(grid[r][c].filled && grid[r][c].comp < 0){
+                    queue.push({ r: r, c: c });
+                    break;
+                }
+            }        
+            if(queue.length > 0){ 
                 break;
             }
         }
+        //printGrid ();
+        curComponent++;
+    }while (queue.length > 0) ;
 
-        if (canDropAll) {
-            blocksToMove.sort((a, b) => b.r - a.r);
-            
-            for (let b of blocksToMove) {
-                grid[b.r + 1][b.c] = { ...grid[b.r][b.c] };
-                grid[b.r + 1][b.c].visualYOffset = -BLOCK_SIZE;
-                grid[b.r][b.c] = { filled: false, isYellow: false, hasPointer: false, pointerType: 'black', opacity: 1, visualYOffset: 0 };
-            }
-            movementOccurred = true;
-        }
-    }
-
-    if (movementOccurred) {
-        animateStructureDrop();
-    } else {
-        cascadeMultiplier = 1;
-        spawnPiece();
-    }
+    animateStructureDrop(curComponent);
 }
 
-function animateStructureDrop() {
-    let animationSteps = 4;
+function animateStructureDrop(numComponents) {
+    let animationSteps = 8;
     let step = 0;
+    let componentsToAnimate = new Set();
+    for (let i=1; i<numComponents; i++){
+        componentsToAnimate.add(i);
+    }
 
     function slide() {
         step++;
         let done = true;
         
+        // intra line animation
         for (let r = 0; r < ROWS; r++) {
             for (let c = 0; c < COLS; c++) {
                 if (grid[r][c].filled && grid[r][c].visualYOffset < 0) {
@@ -613,7 +655,50 @@ function animateStructureDrop() {
             }
         }
 
-        if (!done && step < animationSteps) {
+        // if intra line is finished check if there are open connected-components that can fall further down
+        if (done){
+          
+            //printGrid ();
+            for (let comp of componentsToAnimate){
+                let compIsFreeToFall = true;
+                for (let r = 0; r < ROWS; r++) {
+                    for (let c = 0; c < COLS; c++) {
+                        if (grid[r][c].filled && grid[r][c].comp == comp) {
+                            let nextR = r + 1;
+                            if (nextR >= ROWS || (grid[nextR][c].filled && grid[nextR][c].comp == 0)) {
+                                compIsFreeToFall = false;
+                                break;
+                            }
+                        }
+                    }
+                    if (!compIsFreeToFall) break;
+                }
+                if (!compIsFreeToFall){
+                    for (let r = 0; r < ROWS; r++) {
+                        for (let c = 0; c < COLS; c++) {
+                            if (grid[r][c].filled && grid[r][c].comp == comp) {
+                                grid[r][c].comp = 0;
+                            }
+                        }
+                    }
+                    componentsToAnimate.delete(comp);
+                } else {
+                    for (let r = ROWS - 1; r >= 0; r--) {
+                        for (let c = 0; c < COLS; c++) {
+                            if (grid[r][c].filled && grid[r][c].comp == comp) {
+                                grid[r + 1][c] = { ...grid[r][c] };
+                                grid[r + 1][c].visualYOffset = -BLOCK_SIZE;
+                                grid[r][c] = { filled: false, isYellow: false, hasPointer: false, pointerType: 'black', opacity: 1, visualYOffset: 0 };
+                            }
+                        }
+                    } 
+                    done = false;
+                    step = 0;
+                }
+            }
+        }
+
+        if (!done){ //&& step < animationSteps) {
             requestAnimationFrame(slide);
         } else {
             for (let r = 0; r < ROWS; r++) {
@@ -659,13 +744,13 @@ function draw() {
                 let color = grid[r][c].isYellow ? COLOR_PASTEL_YELLOW : COLOR_PASTEL_RED;
                 
                 if(grid[r][c].hasPointer){
-                let staticRot = 0; 
-                if (grid[r][c].pointerType === 'blue') {
-                    if (grid[r][c].initialDir === 0) staticRot = Math.PI;
-                    if (grid[r][c].initialDir === 1) staticRot = 0;
-                    if (grid[r][c].initialDir === 2) staticRot = Math.PI / 2;
-                    if (grid[r][c].initialDir === 3) staticRot = -Math.PI / 2;
-                }
+                    let staticRot = 0; 
+                    if (grid[r][c].pointerType === 'blue') {
+                        if (grid[r][c].initialDir === 0) staticRot = Math.PI;
+                        if (grid[r][c].initialDir === 1) staticRot = 0;
+                        if (grid[r][c].initialDir === 2) staticRot = Math.PI / 2;
+                        if (grid[r][c].initialDir === 3) staticRot = -Math.PI / 2;
+                    }
                     pointerToDraw.push([c, r, grid[r][c].pointerType, staticRot, 0, grid[r][c].visualYOffset]);
                 }
                 drawBlock(ctx, c, r, color, 0, grid[r][c].visualYOffset);
@@ -704,16 +789,16 @@ function draw() {
                     let color = isFallingBlockYellowRealtime(logicX, logicY) ? COLOR_PASTEL_YELLOW : COLOR_PASTEL_RED;
 
                     if(currentPiece.matrix[r][c].hasPointer){
-                    let keyRot = currentPiece.matrix[r][c].pointerType === 'black' ? -visualRotationOffset : 0;
-                    if (currentPiece.matrix[r][c].pointerType === 'blue') {
-                        if (currentPiece.matrix[r][c].initialDir === 0) keyRot += Math.PI;
-                        if (currentPiece.matrix[r][c].initialDir === 2) keyRot += Math.PI / 2;
-                        if (currentPiece.matrix[r][c].initialDir === 3) keyRot -= Math.PI / 2;
-                    }
+                      let keyRot = currentPiece.matrix[r][c].pointerType === 'black' ? -visualRotationOffset : 0;
+                      if (currentPiece.matrix[r][c].pointerType === 'blue') {
+                          if (currentPiece.matrix[r][c].initialDir === 0) keyRot += Math.PI;
+                          if (currentPiece.matrix[r][c].initialDir === 2) keyRot += Math.PI / 2;
+                          if (currentPiece.matrix[r][c].initialDir === 3) keyRot -= Math.PI / 2;
+                      }
                       pointerToDraw.push([drawX, drawY, currentPiece.matrix[r][c].pointerType, keyRot]);
                     }
                     drawBlock(ctx, drawX, drawY, color);
-
+                
                 }
             }
         }
@@ -771,7 +856,7 @@ function drawNext() {
                 drawPointer(nextCtx, c, r, nextPiece.matrix[r][c].pointerType, 0, offset);
             }
         }
-    }
+    }    
 }
 
 function drawBlock(context, x, y, color, pixelOffset = 0, yAnimateOffset = 0) {
@@ -795,17 +880,17 @@ function drawPointer(context, x, y, pointerType, keyRotation, pixelOffset = 0, y
     const rectWidthLower = 8;
     const rectHeight = BLOCK_SIZE /2 + 5;
 
-        context.save();
-        context.translate(px + BLOCK_SIZE / 2, py + BLOCK_SIZE / 2);
-        context.rotate(keyRotation);
+    context.save();
+    context.translate(px + BLOCK_SIZE / 2, py + BLOCK_SIZE / 2);
+    context.rotate(keyRotation);
 
     context.fillStyle = pointerType === 'blue' ? COLOR_POINTER_BLUE : COLOR_POINTER_BLACK;
-        context.beginPath();
+    context.beginPath();
     context.arc(0, 0, lockRadius, 0, Math.PI * 2);
-        context.fill();
+    context.fill();
 
     //context.fillStyle = '#1a1a24';
-        context.beginPath();
+    context.beginPath();
     context.arc(0, 0, lockRadiusInner, 0, Math.PI * 2);
     context.closePath();
     context.fill();
@@ -842,9 +927,9 @@ function drawPointer(context, x, y, pointerType, keyRotation, pixelOffset = 0, y
     context.lineTo(rectWidthLower/2, rectHeight);
     context.lineTo(rectWidthUpper/2, 0);
     context.closePath();
-        context.fill();
+    context.fill();
 
-        context.restore();
+    context.restore();
 }
 
 function drawLocksmithBlock(context, x, y, color, hasPointer, pointerType, keyRotation, pixelOffset = 0, yAnimateOffset = 0) {
@@ -861,14 +946,14 @@ function gameLoop() {
     let currentDropInterval = Math.max(1000 - (level - 1) * 150, 100);
 
     if (!gamePaused){
-    if (gameState === 'playing' && currentPiece) {
-        if (isHardDropping) {
-            dropPiece();
-        } else if (now - lastDropTime > currentDropInterval) {
-            dropPiece();
-            lastDropTime = now;
+      if (gameState === 'playing' && currentPiece) {
+          if (isHardDropping) {
+              dropPiece();
+          } else if (now - lastDropTime > currentDropInterval) {
+              dropPiece();
+              lastDropTime = now;
           }
-        }
+      }
     }
     
     draw();
@@ -881,7 +966,7 @@ window.addEventListener('keydown', e => {
     if (e.key === 'ArrowLeft') moveLeft();
     if (e.key === 'ArrowRight') moveRight();
     if (e.key === 'ArrowUp') rotatePiece();
-if (e.key === 'p') pause();
+    if (e.key === 'p') pause();
     if (e.key === 'ArrowDown') {
         dropPiece();
     }
