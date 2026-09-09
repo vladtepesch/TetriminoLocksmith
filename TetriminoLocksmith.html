@@ -84,7 +84,7 @@
                 <p><span class="key">←</span> <span class="key">→</span> : Bewegen</p>
                 <p><span class="key">↑</span> : Rotieren</p>
                 <p><span class="key">↓</span> : Sanfter Fall</p>
-                <p><span class="key">Space</span> / <span class="key">Doppel-↓</span> : Hard Drop (Animiert)</p>
+                <p><span class="key">Space</span> / <span class="key">Doppel-↓</span> : Hard Drop</p>
                 <hr style="border: 0; border-top: 1px solid #444; margin: 10px 0;">
                 <p style="font-size: 11px; color: #f2d984;">💡 <b>Regel:</b> Mindestens 3 nebeneinanderliegende gelbe Blöcke lösen sich auf!</p>
             </div>
@@ -105,11 +105,12 @@ const COLOR_PASTEL_YELLOW = '#f2d984';
 let score = 0;
 let gameOver = false;
 
+// Spielfeld-Matrix
 let grid = Array.from({ length: ROWS }, () => 
     Array.from({ length: COLS }, () => ({ filled: false, isYellow: false, hasPointer: false, opacity: 1 }))
 );
 
-// Korrekte 4x4 und 3x3 Matrizen für fehlerfreie Tetris-Rotationen
+// Echte quadratische Boxen verhindern das Verspringen der Zeilen/Spalten beim Drehen
 const SHAPES = {
     I: [
         [0, 0, 0, 0],
@@ -153,14 +154,14 @@ let currentPiece = null;
 // Animations-Variablen
 let animX = 0;
 let animY = 0;
-let animAngle = 0;
-let targetAngle = 0;
+let visualRotationOffset = 0; // Fängt den Dreh-Ruck auf und glättet ihn
 let fadeAnimationActive = false;
-let isHardDropping = false;
+let isHardDropping = false;   // Steuert die schnelle Fall-Animation
 
 let lastDownKeyTime = 0;
 
 function spawnPiece() {
+    isHardDropping = false;
     const keys = Object.keys(SHAPES);
     const type = keys[Math.floor(Math.random() * keys.length)];
     const shapeMatrix = SHAPES[type];
@@ -191,9 +192,7 @@ function spawnPiece() {
 
     animX = currentPiece.x;
     animY = currentPiece.y;
-    animAngle = 0;
-    targetAngle = 0;
-    isHardDropping = false;
+    visualRotationOffset = 0;
 
     if (checkCollision(currentPiece.x, currentPiece.y, currentPiece.matrix)) {
         gameOver = true;
@@ -214,8 +213,7 @@ function checkCollision(ax, ay, matrix) {
     return false;
 }
 
-// Dreht die logische Matrix im Uhrzeigersinn
-function rotateMatrixClockwise(matrix) {
+function rotateMatrix(matrix) {
     const n = matrix.length;
     let newMatrix = Array.from({ length: n }, () => Array(n).fill(null));
     for (let r = 0; r < n; r++) {
@@ -228,11 +226,11 @@ function rotateMatrixClockwise(matrix) {
 
 function rotatePiece() {
     if (!currentPiece || fadeAnimationActive || isHardDropping) return;
-    const nextMatrix = rotateMatrixClockwise(currentPiece.matrix);
+    const nextMatrix = rotateMatrix(currentPiece.matrix);
     if (!checkCollision(currentPiece.x, currentPiece.y, nextMatrix)) {
         currentPiece.matrix = nextMatrix;
-        // Da die Matrix im Uhrzeigersinn gedreht wird, muss auch der visuelle Winkel positiv erhöht werden
-        targetAngle += Math.PI / 2; 
+        // Setzt den visuellen Versatz zurück, um eine flüssige 90°-Drehung zu animieren
+        visualRotationOffset -= Math.PI / 2;
     }
 }
 
@@ -249,7 +247,7 @@ function moveRight() {
 }
 
 function dropPiece() {
-    if (gameOver || fadeAnimationActive || !currentPiece || isHardDropping) return;
+    if (gameOver || fadeAnimationActive || !currentPiece) return;
 
     if (!checkCollision(currentPiece.x, currentPiece.y + 1, currentPiece.matrix)) {
         currentPiece.y++;
@@ -260,8 +258,7 @@ function dropPiece() {
     }
 }
 
-// Triggert den schnell animierten Hard Drop
-function triggerHardDrop() {
+function startHardDrop() {
     if (gameOver || fadeAnimationActive || !currentPiece || isHardDropping) return;
     isHardDropping = true;
 }
@@ -435,53 +432,37 @@ function draw() {
 
     // Aktives fallendes Element zeichnen
     if (currentPiece && !fadeAnimationActive) {
-        // Wenn Hard Drop aktiv ist, fällt das Element extrem schnell visuell nach unten
-        if (isHardDropping) {
-            if (!checkCollision(currentPiece.x, currentPiece.y + 1, currentPiece.matrix)) {
-                currentPiece.y += 1.5; // Schneller Logik-Vorschub pro Animations-Frame
-                if (checkCollision(currentPiece.x, Math.floor(currentPiece.y) + 1, currentPiece.matrix)) {
-                    currentPiece.y = Math.floor(currentPiece.y);
-                    lockPiece();
-                    applyKeyMechanic();
-                    checkMatch3Yellow();
-                }
-            } else {
-                lockPiece();
-                applyKeyMechanic();
-                checkMatch3Yellow();
-            }
-        }
+        // Flüssiger Positions-Lerp
+        animX += (currentPiece.x - animX) * 0.3;
+        animY += (currentPiece.y - animY) * 0.4;
+        
+        // Rotations-Glättung lerpt sanft zurück gegen 0
+        visualRotationOffset += (0 - visualRotationOffset) * 0.25;
 
-        // Standard Interpolation für normale Bewegungen
-        if (currentPiece) { // Sicherheitsprüfung, falls oben gelockt wurde
-            animX += (currentPiece.x - animX) * 0.3;
-            animY += (currentPiece.y - animY) * 0.4; // Etwas schneller bei vertikalem Fall
-            animAngle += (targetAngle - animAngle) * 0.25;
+        let size = currentPiece.matrix.length;
+        let centerOffset = size / 2;
 
-            let size = currentPiece.matrix.length;
-            let centerOffset = size / 2;
+        ctx.save();
+        // Pivot-Punkt liegt absolut exakt im Gittermittelpunkt des Quadrats
+        ctx.translate((animX + centerOffset) * BLOCK_SIZE, (animY + centerOffset) * BLOCK_SIZE);
+        ctx.rotate(visualRotationOffset);
 
-            ctx.save();
-            ctx.translate((animX + centerOffset) * BLOCK_SIZE, (animY + centerOffset) * BLOCK_SIZE);
-            ctx.rotate(animAngle);
+        for (let r = 0; r < size; r++) {
+            for (let c = 0; c < size; c++) {
+                if (currentPiece.matrix[r][c].active) {
+                    let drawX = c - centerOffset;
+                    let drawY = r - centerOffset;
 
-            for (let r = 0; r < size; r++) {
-                for (let c = 0; c < size; c++) {
-                    if (currentPiece.matrix[r][c].active) {
-                        let drawX = c - centerOffset;
-                        let drawY = r - centerOffset;
+                    let logicX = currentPiece.x + c;
+                    let logicY = currentPiece.y + r;
+                    let color = isFallingBlockYellowRealtime(logicX, logicY) ? COLOR_PASTEL_YELLOW : COLOR_PASTEL_RED;
 
-                        let logicX = currentPiece.x + c;
-                        let logicY = currentPiece.y + r;
-                        let color = isFallingBlockYellowRealtime(logicX, logicY) ? COLOR_PASTEL_YELLOW : COLOR_PASTEL_RED;
-
-                        // Die Eigenrotation des Canvas wird hier aufgehoben, damit Schlüssellöcher immer nach unten zeigen
-                        drawLocksmithBlock(drawX, drawY, color, currentPiece.matrix[r][c].hasPointer, -animAngle);
-                    }
+                    // Das Schlüsselloch bleibt unbeeinflusst von der visuellen Drehung starr nach unten ausgerichtet
+                    drawLocksmithBlock(drawX, drawY, color, currentPiece.matrix[r][c].hasPointer, -visualRotationOffset);
                 }
             }
-            ctx.restore();
         }
+        ctx.restore();
     }
 
     if (gameOver) {
@@ -527,16 +508,21 @@ const dropInterval = 1000;
 
 function gameLoop() {
     let now = Date.now();
-    if (now - lastDropTime > dropInterval && !isHardDropping) {
+    
+    // Wenn Hard Drop aktiv ist, fällt der Block extrem schnell animiert nach unten (30 Reihen pro Sekunde)
+    if (isHardDropping) {
+        dropPiece();
+    } else if (now - lastDropTime > dropInterval) {
         dropPiece();
         lastDropTime = now;
     }
+    
     draw();
     requestAnimationFrame(gameLoop);
 }
 
 window.addEventListener('keydown', e => {
-    if (gameOver || fadeAnimationActive || isHardDropping) return;
+    if (gameOver || fadeAnimationActive) return;
     
     if (e.key === 'ArrowLeft') moveLeft();
     if (e.key === 'ArrowRight') moveRight();
@@ -545,7 +531,7 @@ window.addEventListener('keydown', e => {
     if (e.key === 'ArrowDown') {
         let currentTime = Date.now();
         if (currentTime - lastDownKeyTime < 250 && !e.repeat) {
-            triggerHardDrop();
+            startHardDrop();
         } else {
             dropPiece();
             score += 1;
@@ -556,7 +542,7 @@ window.addEventListener('keydown', e => {
     
     if (e.key === ' ') {
         e.preventDefault();
-        triggerHardDrop();
+        startHardDrop();
     }
 });
 
