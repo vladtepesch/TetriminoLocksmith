@@ -105,56 +105,60 @@ const COLOR_PASTEL_YELLOW = '#f2d984';
 let score = 0;
 let gameOver = false;
 
+// Spielfeld-Matrix initialisieren
 let grid = Array.from({ length: ROWS }, () => 
     Array.from({ length: COLS }, () => ({ filled: false, isYellow: false, hasPointer: false, opacity: 1 }))
 );
 
+// Definitionen der 7 klassischen Formen (Matrizen)
 const SHAPES = {
     I: [
-        [0,0,0,0],
-        [1,1,1,1],
-        [0,0,0,0],
-        [0,0,0,0]
+        [0, 0, 0, 0],
+        [1, 1, 1, 1],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0]
     ],
     J: [
-        [1,0,0],
-        [1,1,1],
-        [0,0,0]
+        [1, 0, 0],
+        [1, 1, 1],
+        [0, 0, 0]
     ],
     L: [
-        [0,0,1],
-        [1,1,1],
-        [0,0,0]
+        [0, 0, 1],
+        [1, 1, 1],
+        [0, 0, 0]
     ],
     O: [
-        [1,1],
-        [1,1]
+        [1, 1],
+        [1, 1]
     ],
     S: [
-        [0,1,1],
-        [1,1,0],
-        [0,0,0]
+        [0, 1, 1],
+        [1, 1, 0],
+        [0, 0, 0]
     ],
     Z: [
-        [1,1,0],
-        [0,1,1],
-        [0,0,0]
+        [1, 1, 0],
+        [0, 1, 1],
+        [0, 0, 0]
     ],
     T: [
-        [0,1,0],
-        [1,1,1],
-        [0,0,0]
+        [0, 1, 0],
+        [1, 1, 1],
+        [0, 0, 0]
     ]
 };
 
 let currentPiece = null;
 
+// Variablen für die Positions- und Rotations-Interpolation
 let animX = 0;
 let animY = 0;
 let animAngle = 0;
 let targetAngle = 0;
 let fadeAnimationActive = false;
 
+// Zeitstempel für Doppelklick-Erkennung bei ArrowDown
 let lastDownKeyTime = 0;
 
 function spawnPiece() {
@@ -171,6 +175,7 @@ function spawnPiece() {
         })
     );
 
+    // Mindestens ein Schlüsselloch garantieren
     let hasAnyPointer = matrix.some(row => row.some(b => b.hasPointer));
     if (!hasAnyPointer) {
         let validBlocks = [];
@@ -210,6 +215,7 @@ function checkCollision(ax, ay, matrix) {
     return false;
 }
 
+// Rotiert im Uhrzeigersinn
 function rotateMatrix(matrix) {
     const n = matrix.length;
     let newMatrix = Array.from({ length: n }, () => Array(n).fill(null));
@@ -226,7 +232,7 @@ function rotatePiece() {
     const nextMatrix = rotateMatrix(currentPiece.matrix);
     if (!checkCollision(currentPiece.x, currentPiece.y, nextMatrix)) {
         currentPiece.matrix = nextMatrix;
-        targetAngle += Math.PI / 2;
+        targetAngle += Math.PI / 2; 
     }
 }
 
@@ -408,6 +414,7 @@ function applyGravity() {
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // Gitterlinien
     ctx.strokeStyle = '#34495e';
     ctx.lineWidth = 1;
     for (let r = 0; r <= ROWS; r++) {
@@ -417,6 +424,7 @@ function draw() {
         ctx.beginPath(); ctx.moveTo(c * BLOCK_SIZE, 0); ctx.lineTo(c * BLOCK_SIZE, canvas.height); ctx.stroke();
     }
 
+    // Grid auf dem Spielfeld zeichnen
     for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
             if (grid[r][c].filled) {
@@ -428,6 +436,7 @@ function draw() {
     }
     ctx.globalAlpha = 1.0;
 
+    // Aktives fallendes Element zeichnen
     if (currentPiece && !fadeAnimationActive) {
         animX += (currentPiece.x - animX) * 0.3;
         animY += (currentPiece.y - animY) * 0.3;
