@@ -38,17 +38,17 @@
         }
         .info-box {
             background: #1e1e2f;
-            padding: 12px;
+            padding: 15px;
             border-radius: 8px;
             border-left: 4px solid #f2d984;
-            margin-bottom: 12px;
+            margin-bottom: 15px;
         }
-        .info-box h3 { margin: 0 0 4px 0; font-size: 12px; text-transform: uppercase; color: #888; }
+        .info-box h3 { margin: 0 0 5px 0; font-size: 12px; text-transform: uppercase; color: #888; }
         .info-box p { margin: 0; font-size: 24px; font-weight: bold; }
         .controls-hint {
-            font-size: 11px;
+            font-size: 12px;
             color: #aaa;
-            line-height: 1.5;
+            line-height: 1.6;
         }
         .key {
             background: #34495e;
@@ -87,7 +87,7 @@
                     <h3>Gelbe Blöcke</h3>
                     <p id="yellow-count">0</p>
                 </div>
-                <div class="info-box" style="padding: 10px; margin-bottom: 0;">
+                <div class="info-box" style="padding: 10px;">
                     <h3 style="margin-bottom: 5px;">Nächstes Teil</h3>
                     <canvas id="nextCanvas" width="120" height="120"></canvas>
                 </div>
@@ -98,9 +98,9 @@
                 <p><span class="key">←</span> <span class="key">→</span> : Bewegen</p>
                 <p><span class="key">↑</span> : Rotieren</p>
                 <p><span class="key">↓</span> : Sanfter Fall</p>
-                <p><span class="key">Space</span> / <span class="key">Doppel-↓</span> : Hard Drop</p>
-                <hr style="border: 0; border-top: 1px solid #444; margin: 8px 0;">
-                <p style="font-size: 10px; color: #f2d984;">💡 Schwarz zeigt immer nach unten. Blau dreht sich mit. Alle 1000 Punkte steigt das Level und die Geschwindigkeit!</p>
+                <p><span class="key">Space</span> : Hard Drop</p>
+                <hr style="border: 0; border-top: 1px solid #444; margin: 10px 0;">
+                <p style="font-size: 10px; color: #f2d984;">💡 <b>Regel:</b> Schwarz zeigt immer nach unten. Blau dreht sich mit und färbt in seine Blickrichtung!</p>
             </div>
         </div>
     </div>
@@ -119,11 +119,11 @@ const COLOR_PASTEL_RED = '#ff8b94';
 const COLOR_PASTEL_YELLOW = '#f2d984';
 
 let score = 0;
-let level = 1;
+let currentLevel = 1;
 let gameOver = false;
 
 let grid = Array.from({ length: ROWS }, () => 
-    Array.from({ length: COLS }, () => ({ filled: false, isYellow: false, hasPointer: false, pointerType: 'black', opacity: 1 }))
+    Array.from({ length: COLS }, () => ({ filled: false, isYellow: false, hasPointer: false, pointerType: 'black', opacity: 1, initialDir: 1 }))
 );
 
 const SHAPES = {
@@ -159,10 +159,17 @@ const SHAPES = {
     ],
     T: [
         [0,1,0],
-        [1,1,1],
-        [0,0,0]
+        [1,1,0],
+        [0,0,0] // corrected standard T setup matrix later dynamically or handle symmetrically
     ]
 };
+
+// Precise standard SRS or custom safe shapes setup
+SHAPES.T = [
+    [0,1,0],
+    [1,1,1],
+    [0,0,0]
+];
 
 let currentPiece = null;
 let nextPiece = null;
@@ -172,7 +179,9 @@ let animY = 0;
 let visualRotationOffset = 0;
 let fadeAnimationActive = false;
 let isHardDropping = false;
-let lastDownKeyTime = 0;
+
+let comboMessage = "";
+let comboTimer = 0;
 
 function createPieceData(type) {
     const shapeMatrix = SHAPES[type];
@@ -183,7 +192,7 @@ function createPieceData(type) {
                     active: 1, 
                     hasPointer: Math.random() < 0.35,
                     pointerType: Math.random() < 0.15 ? 'blue' : 'black',
-                    initialDir: 1 // 0:oben, 1:unten, 2:links, 3:rechts
+                    initialDir: 1 // 0: Oben, 1: Unten, 2: Links, 3: Rechts
                 };
             }
             return { active: 0, hasPointer: false, pointerType: 'black', initialDir: 1 };
@@ -193,7 +202,6 @@ function createPieceData(type) {
 
 function spawnPiece() {
     isHardDropping = false;
-    lastDownKeyTime = 0; // Schutz zurücksetzen bei neuem Spawn
     
     if (!nextPiece) {
         const keys = Object.keys(SHAPES);
@@ -205,7 +213,8 @@ function spawnPiece() {
         type: nextPiece.type,
         matrix: nextPiece.matrix,
         x: Math.floor((COLS - nextPiece.matrix.length) / 2),
-        y: nextPiece.type === 'I' ? -1 : 0
+        y: nextPiece.type === 'I' ? -1 : 0,
+        stateI: 0 // 0: horizontal, 1: vertikal
     };
 
     const keys = Object.keys(SHAPES);
@@ -216,8 +225,10 @@ function spawnPiece() {
     if (!hasAnyPointer) {
         let validBlocks = [];
         currentPiece.matrix.forEach((row, r) => row.forEach((b, c) => { if(b.active) validBlocks.push({r,c}); }));
-        let pick = validBlocks[Math.floor(Math.random() * validBlocks.length)];
-        currentPiece.matrix[pick.r][pick.c].hasPointer = true;
+        if(validBlocks.length > 0) {
+            let pick = validBlocks[Math.floor(Math.random() * validBlocks.length)];
+            currentPiece.matrix[pick.r][pick.c].hasPointer = true;
+        }
     }
 
     animX = currentPiece.x;
@@ -252,7 +263,7 @@ function rotateMatrixClockwise(matrix) {
         for (let c = 0; c < n; c++) {
             newMatrix[c][n - 1 - r] = { ...matrix[r][c] };
             if (newMatrix[c][n - 1 - r].hasPointer && newMatrix[c][n - 1 - r].pointerType === 'blue') {
-                let dirs = { 0: 3, 1: 2, 2: 0, 3: 1 };
+                let dirs = [3, 2, 0, 1]; // 0->3, 1->2, 2->0, 3->1
                 newMatrix[c][n - 1 - r].initialDir = dirs[matrix[r][c].initialDir];
             }
         }
@@ -263,11 +274,75 @@ function rotateMatrixClockwise(matrix) {
 function rotatePiece() {
     if (!currentPiece || fadeAnimationActive || isHardDropping) return;
 
-    let nextMatrix = rotateMatrixClockwise(currentPiece.matrix);
-
-    if (!checkCollision(currentPiece.x, currentPiece.y, nextMatrix)) {
-        currentPiece.matrix = nextMatrix;
-        visualRotationOffset -= Math.PI / 2;
+    let nextMatrix;
+    if (currentPiece.type === 'I') {
+        // Absolute precision 2-state flop matrix for I-piece to strictly prevent column switching
+        if (currentPiece.stateI === 0) {
+            nextMatrix = [
+                [0,1,0,0],
+                [0,1,0,0],
+                [0,1,0,0],
+                [0,1,0,0]
+            ];
+            // Transfer properties
+            let flatProps = [];
+            currentPiece.matrix.forEach(row => row.forEach(b => { if(b.active) flatProps.push(b); }));
+            let idx = 0;
+            for(let r=0; r<4; r++) {
+                for(let c=0; c<4; c++) {
+                    if(nextMatrix[r][c] === 1) {
+                        let prop = flatProps[idx++] || { hasPointer: false, pointerType: 'black', initialDir: 1 };
+                        nextMatrix[r][c] = { active: 1, ...prop };
+                        if (nextMatrix[r][c].hasPointer && nextMatrix[r][c].pointerType === 'blue') {
+                            let dirs = [3, 2, 0, 1];
+                            nextMatrix[r][c].initialDir = dirs[nextMatrix[r][c].initialDir];
+                        }
+                    } else {
+                        nextMatrix[r][c] = { active: 0, hasPointer: false, pointerType: 'black', initialDir: 1 };
+                    }
+                }
+            }
+            if (!checkCollision(currentPiece.x, currentPiece.y, nextMatrix)) {
+                currentPiece.matrix = nextMatrix;
+                currentPiece.stateI = 1;
+                visualRotationOffset -= Math.PI / 2;
+            }
+        } else {
+            nextMatrix = [
+                [0,0,0,0],
+                [1,1,1,1],
+                [0,0,0,0],
+                [0,0,0,0]
+            ];
+            let flatProps = [];
+            currentPiece.matrix.forEach(row => row.forEach(b => { if(b.active) flatProps.push(b); }));
+            let idx = 0;
+            for(let r=0; r<4; r++) {
+                for(let c=0; c<4; c++) {
+                    if(nextMatrix[r][c] === 1) {
+                        let prop = flatProps[idx++] || { hasPointer: false, pointerType: 'black', initialDir: 1 };
+                        nextMatrix[r][c] = { active: 1, ...prop };
+                        if (nextMatrix[r][c].hasPointer && nextMatrix[r][c].pointerType === 'blue') {
+                            let dirs = [3, 2, 0, 1];
+                            nextMatrix[r][c].initialDir = dirs[nextMatrix[r][c].initialDir];
+                        }
+                    } else {
+                        nextMatrix[r][c] = { active: 0, hasPointer: false, pointerType: 'black', initialDir: 1 };
+                    }
+                }
+            }
+            if (!checkCollision(currentPiece.x, currentPiece.y, nextMatrix)) {
+                currentPiece.matrix = nextMatrix;
+                currentPiece.stateI = 0;
+                visualRotationOffset -= Math.PI / 2;
+            }
+        }
+    } else {
+        nextMatrix = rotateMatrixClockwise(currentPiece.matrix);
+        if (!checkCollision(currentPiece.x, currentPiece.y, nextMatrix)) {
+            currentPiece.matrix = nextMatrix;
+            visualRotationOffset -= Math.PI / 2;
+        }
     }
 }
 
@@ -290,8 +365,8 @@ function dropPiece() {
         currentPiece.y++;
     } else {
         lockPiece();
-        applyKeyMechanic();
-        checkMatch3Yellow();
+        // Calculate all cascades synchronously in a single process step to prevent visual phantom rows glitch
+        processCascadesAndScoring();
     }
 }
 
@@ -301,6 +376,7 @@ function startHardDrop() {
 }
 
 function lockPiece() {
+    let pieceBlocksCount = 0;
     for (let r = 0; r < currentPiece.matrix.length; r++) {
         for (let c = 0; c < currentPiece.matrix[r].length; c++) {
             if (currentPiece.matrix[r][c].active) {
@@ -315,20 +391,23 @@ function lockPiece() {
                         initialDir: currentPiece.matrix[r][c].initialDir,
                         opacity: 1
                     };
+                    pieceBlocksCount++;
                 }
             }
         }
     }
+    // Each placed piece grants 1 point
+    score += 1;
+    updateLevel();
+    document.getElementById('score').innerText = score;
     currentPiece = null;
     isHardDropping = false;
-    lastDownKeyTime = 0; // Absicherung nach dem Festsetzen zurücksetzen
 }
 
 function isFallingBlockYellowRealtime(gridX, gridY) {
     if (gridY > 0 && grid[gridY - 1][gridX].filled && grid[gridY - 1][gridX].hasPointer && grid[gridY - 1][gridX].pointerType === 'black') {
         return true;
     }
-
     if (!currentPiece) return false;
 
     for (let r = 0; r < currentPiece.matrix.length; r++) {
@@ -356,7 +435,6 @@ function isFallingBlockYellowRealtime(gridX, gridY) {
         {dx: 1, dy: 0, dir: 2},
         {dx: -1, dy: 0, dir: 3}
     ];
-
     for (let d of dirs) {
         let checkX = gridX + d.dx;
         let checkY = gridY + d.dy;
@@ -367,7 +445,6 @@ function isFallingBlockYellowRealtime(gridX, gridY) {
             }
         }
     }
-
     return false;
 }
 
@@ -396,90 +473,90 @@ function applyKeyMechanic() {
     }
 }
 
-function checkMatch3Yellow() {
-    let toRemove = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
-    let matchFound = false;
+function processCascadesAndScoring() {
+    let cascadeMultiplier = 1;
+    let chainActive = true;
 
-    for (let r = 0; r < ROWS; r++) {
-        let matchCount = 0;
-        let matchStartIndex = -1;
+    while (chainActive) {
+        applyKeyMechanic();
+        
+        let toRemove = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
+        let matchFound = false;
+        let totalRemovedThisWave = 0;
 
-        for (let c = 0; c < COLS; c++) {
-            if (grid[r][c].filled && grid[r][c].isYellow) {
-                if (matchCount === 0) matchStartIndex = c;
-                matchCount++;
-            } else {
-                if (matchCount >= 3) {
-                    for (let m = matchStartIndex; m < c; m++) toRemove[r][m] = true;
-                    matchFound = true;
+        for (let r = 0; r < ROWS; r++) {
+            let matchCount = 0;
+            let matchStartIndex = -1;
+
+            for (let c = 0; c < COLS; c++) {
+                if (grid[r][c].filled && grid[r][c].isYellow) {
+                    if (matchCount === 0) matchStartIndex = c;
+                    matchCount++;
+                } else {
+                    if (matchCount >= 3) {
+                        for (let m = matchStartIndex; m < c; m++) {
+                            if (!toRemove[r][m]) {
+                                toRemove[r][m] = true;
+                                totalRemovedThisWave++;
+                            }
+                        }
+                        matchFound = true;
+                    }
+                    matchCount = 0;
                 }
-                matchCount = 0;
+            }
+            if (matchCount >= 3) {
+                for (let m = matchStartIndex; m < COLS; m++) {
+                    if (!toRemove[r][m]) {
+                        toRemove[r][m] = true;
+                        totalRemovedThisWave++;
+                    }
+                }
+                matchFound = true;
             }
         }
-        if (matchCount >= 3) {
-            for (let m = matchStartIndex; m < COLS; m++) toRemove[r][m] = true;
-            matchFound = true;
+
+        if (matchFound && totalRemovedThisWave > 0) {
+            // New dynamic formula: (10 + 10 * block) * cascadeMultiplier
+            let wavePoints = (10 + 10 * totalRemovedThisWave) * cascadeMultiplier;
+            score += wavePoints;
+            
+            if (cascadeMultiplier > 1) {
+                comboMessage = `Kombination x${cascadeMultiplier}! +${wavePoints}`;
+                comboTimer = 90; // display duration frames
+            }
+
+            // Clean up cleared blocks instantly
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    if (toRemove[r][c]) {
+                        grid[r][c] = { filled: false, isYellow: false, hasPointer: false, pointerType: 'black', opacity: 1, initialDir: 1 };
+                    }
+                }
+            }
+
+            applyGravity();
+            cascadeMultiplier++;
+        } else {
+            chainActive = false;
         }
     }
 
-    if (matchFound) {
-        fadeAnimationActive = true;
-        animateRowDisappearance(toRemove);
-    } else {
-        if (!currentPiece && !gameOver) spawnPiece();
-    }
+    updateLevel();
+    if (!currentPiece && !gameOver) spawnPiece();
 
     let yellowTotal = 0;
     grid.forEach(row => row.forEach(b => { if(b.isYellow) yellowTotal++; }));
     document.getElementById('yellow-count').innerText = yellowTotal;
 }
 
-function animateRowDisappearance(toRemove) {
-    let steps = 8;
-    let currentStep = 0;
-    
-    function fade() {
-        currentStep++;
-        for (let r = 0; r < ROWS; r++) {
-            for (let c = 0; c < COLS; c++) {
-                if (toRemove[r][c]) {
-                    grid[r][c].opacity = 1 - (currentStep / steps);
-                }
-            }
-        }
-        
-        if (currentStep < steps) {
-            requestAnimationFrame(fade);
-        } else {
-            let removedBlocks = 0;
-            for (let r = 0; r < ROWS; r++) {
-                for (let c = 0; c < COLS; c++) {
-                    if (toRemove[r][c]) {
-                        grid[r][c] = { filled: false, isYellow: false, hasPointer: false, pointerType: 'black', opacity: 1 };
-                        removedBlocks++;
-                    }
-                }
-            }
-            
-            // Punktevergabe ausschließlich für eliminierte Blöcke
-            score += removedBlocks * 50;
-            document.getElementById('score').innerText = score;
-            
-            // Levelberechnung: Alle 1000 Punkte ein Level-Up
-            let newLevel = Math.floor(score / 1000) + 1;
-            if (newLevel !== level) {
-                level = newLevel;
-                document.getElementById('level').innerText = level;
-            }
-            
-            applyGravity();
-            applyKeyMechanic();
-            fadeAnimationActive = false;
-            
-            checkMatch3Yellow();
-        }
+function updateLevel() {
+    // Level target scaled down symmetrically to 500 points per level to respect localized micro-scoring steps
+    let targetLevel = Math.floor(score / 500) + 1;
+    if (targetLevel !== currentLevel) {
+        currentLevel = targetLevel;
+        document.getElementById('level').innerText = currentLevel;
     }
-    fade();
 }
 
 function applyGravity() {
@@ -488,9 +565,8 @@ function applyGravity() {
             if (!grid[r][c].filled) {
                 for (let kr = r - 1; kr >= 0; kr--) {
                     if (grid[kr][c].filled) {
-                        // Tiefenreine Objekttrennung verhindert Kaskadenfehler und fehlerhaftes Verschwinden
-                        grid[r][c] = JSON.parse(JSON.stringify(grid[kr][c]));
-                        grid[kr][c] = { filled: false, isYellow: false, hasPointer: false, pointerType: 'black', opacity: 1 };
+                        grid[r][c] = { ...grid[kr][c] }; // Deep independent cell separation
+                        grid[kr][c] = { filled: false, isYellow: false, hasPointer: false, pointerType: 'black', opacity: 1, initialDir: 1 };
                         break;
                     }
                 }
@@ -505,11 +581,14 @@ function draw() {
     ctx.strokeStyle = '#34495e';
     ctx.lineWidth = 1;
     for (let r = 0; r <= ROWS; r++) {
-        ctx.beginPath(); ctx.moveTo(0, r * BLOCK_SIZE); ctx.lineTo(canvas.width, r * BLOCK_SIZE); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, r * BLOCK_SIZE); ctx.lineTo(canvas.width, r * BLOCK_SIZE); stroke();
     }
     for (let c = 0; c <= COLS; c++) {
-        ctx.beginPath(); ctx.moveTo(c * BLOCK_SIZE, 0); ctx.lineTo(c * BLOCK_SIZE, canvas.height); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(c * BLOCK_SIZE, 0); ctx.lineTo(c * BLOCK_SIZE, canvas.height); stroke();
     }
+
+    // Workaround for undefined stroke within raw code structure
+    function stroke() { ctx.stroke(); }
 
     for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
@@ -565,6 +644,14 @@ function draw() {
             }
         }
         ctx.restore();
+    }
+
+    if (comboTimer > 0) {
+        ctx.fillStyle = '#f2d984';
+        ctx.font = 'bold 20px Segoe UI';
+        ctx.textAlign = 'center';
+        ctx.fillText(comboMessage, canvas.width / 2, 40);
+        comboTimer--;
     }
 
     if (gameOver) {
@@ -629,10 +716,8 @@ let lastDropTime = Date.now();
 
 function gameLoop() {
     let now = Date.now();
-    
-    // Dynamische Berechnung des Intervalls basierend auf dem aktuellen Level
-    // Level 1 = 1000ms, Level 2 = 850ms, Level 3 = 700ms usw. Bis minimal 100ms
-    let dynamicInterval = Math.max(100, 1000 - (level - 1) * 150);
+    // Base drop intervals decrease linearly per level
+    let dynamicInterval = Math.max(100, 1000 - (currentLevel - 1) * 150);
     
     if (isHardDropping) {
         dropPiece();
@@ -651,17 +736,9 @@ window.addEventListener('keydown', e => {
     if (e.key === 'ArrowLeft') moveLeft();
     if (e.key === 'ArrowRight') moveRight();
     if (e.key === 'ArrowUp') rotatePiece();
-    
     if (e.key === 'ArrowDown') {
-        let currentTime = Date.now();
-        if (currentTime - lastDownKeyTime < 250 && !e.repeat) {
-            startHardDrop();
-        } else {
-            dropPiece();
-        }
-        lastDownKeyTime = currentTime;
+        dropPiece();
     }
-    
     if (e.key === ' ') {
         e.preventDefault();
         startHardDrop();
