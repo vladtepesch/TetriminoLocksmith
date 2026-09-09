@@ -25,10 +25,33 @@
             border-radius: 12px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.5);
         }
+        #board-container {
+            position: relative;
+            width: 300px;
+           /* height: 600px;*/
+        }
         canvas {
             border: 4px solid #34495e;
             background-color: #2c3e50;
             border-radius: 4px;
+        }
+        #restart-button {
+            display: none;
+            position: absolute;
+            top: 75%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 10px 18px;
+            border: 0;
+            border-radius: 6px;
+            background: #f2d984;
+            color: #1a1a24;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        #restart-button:hover {
+            background: #ffe9a6;
         }
         #sidebar {
             display: flex;
@@ -84,7 +107,10 @@
     <h2 style="margin-bottom: 10px; color: #f2d984; letter-spacing: 1px; text-transform: uppercase;">Tetrimino Locksmith</h2>
 
     <div id="game-container">
-        <canvas id="gameCanvas" width="300" height="600"></canvas>
+        <div id="board-container">
+            <canvas id="gameCanvas" width="300" height="600"></canvas>
+            <button id="restart-button" type="button">Restart Game</button>
+        </div>
 
         <div id="sidebar">
             <div>
@@ -122,6 +148,7 @@
 <script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
+const restartButton = document.getElementById('restart-button');
 const nextCanvas = document.getElementById('nextCanvas');
 const nextCtx = nextCanvas.getContext('2d');
 
@@ -336,6 +363,28 @@ function pause() {
         gamePaused = !gamePaused;
     }
 }
+
+function restartGame() {
+    score = 0;
+    level = 1;
+    gameOver = false;
+    gamePaused = false;
+    currentPiece = null;
+    nextPiece = null;
+    gameState = 'playing';
+    isHardDropping = false;
+    cascadeMultiplier = 1;
+    comboText = "";
+    comboTextOpacity = 0;
+    grid = Array.from({ length: ROWS }, () =>
+        Array.from({ length: COLS }, () => ({ filled: false, isYellow: false, hasPointer: false, pointerType: 'black', opacity: 1, visualYOffset: 0 }))
+    );
+    lastDropTime = Date.now();
+    restartButton.style.display = 'none';
+    updateUI();
+    spawnPiece();
+}
+
 function dropPiece() {
     if (gameOver || gameState !== 'playing' || !currentPiece) return;
 
@@ -825,6 +874,10 @@ function draw() {
         ctx.font = 'bold 30px Segoe UI';
         ctx.textAlign = 'center';
         ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2);
+        ctx.font = '14px Segoe UI';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText("Press Escape or click Restart", canvas.width / 2, canvas.height / 2 + 32);
+        restartButton.style.display = 'block';
     }
     if (gamePaused) {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
@@ -961,7 +1014,13 @@ function gameLoop() {
     requestAnimationFrame(gameLoop);
 }
 
+restartButton.addEventListener('click', restartGame);
+
 window.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && gameOver) {
+        restartGame();
+        return;
+    }
     if (gameOver || gameState !== 'playing') return;
     
     if (e.key === 'ArrowLeft') moveLeft();
