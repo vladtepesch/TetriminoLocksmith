@@ -301,7 +301,7 @@ let comboTextOpacity = 0;
 
 function createPieceData(type) {
     const shapeMatrix = SHAPES[type];
-    return shapeMatrix.map(row => 
+    const pieceMatrix = shapeMatrix.map(row => 
         row.map(val => {
             if (val === 1) {
                 let r = Math.random();
@@ -315,6 +315,16 @@ function createPieceData(type) {
             return { active: 0, hasPointer: false, pointerType: 'black', initialDir: 1 };
         })
     );
+
+    if (!pieceMatrix.some(row => row.some(block => block.hasPointer))) {
+        const validBlocks = [];
+        pieceMatrix.forEach((row, r) => row.forEach((block, c) => {
+            if (block.active) validBlocks.push({ r, c });
+        }));
+        const pick = validBlocks[Math.floor(Math.random() * validBlocks.length)];
+        pieceMatrix[pick.r][pick.c].hasPointer = true;
+    }
+    return pieceMatrix;
 }
 
 function spawnPiece() {
@@ -337,14 +347,6 @@ function spawnPiece() {
     const keys = Object.keys(SHAPES);
     const nextType = keys[Math.floor(Math.random() * keys.length)];
     nextPiece = { type: nextType, matrix: createPieceData(nextType) };
-
-    let hasAnyPointer = currentPiece.matrix.some(row => row.some(b => b.hasPointer));
-    if (!hasAnyPointer) {
-        let validBlocks = [];
-        currentPiece.matrix.forEach((row, r) => row.forEach((b, c) => { if(b.active) validBlocks.push({r,c}); }));
-        let pick = validBlocks[Math.floor(Math.random() * validBlocks.length)];
-        currentPiece.matrix[pick.r][pick.c].hasPointer = true;
-    }
 
     animX = currentPiece.x;
     animY = currentPiece.y;
