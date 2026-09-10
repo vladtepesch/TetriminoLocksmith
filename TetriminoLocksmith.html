@@ -195,6 +195,9 @@ const ROWS = 20;
 const COLS = 10;
 const BLOCK_SIZE = 30;
 
+const DRAW_LOCK_ON_BLOCK = false;
+
+
 function getCSSColor(id,className) {
     const block = document.createElement('div');
     block.id = id;
@@ -1080,6 +1083,23 @@ function drawBlock(context, x, y, color, pixelOffset = 0, yAnimateOffset = 0) {
     context.strokeStyle = 'rgba(255,255,255,0.2)';
     context.lineWidth = 1;
     context.strokeRect(px + 1, py + 1, BLOCK_SIZE - 2, BLOCK_SIZE - 2);
+
+    if (DRAW_LOCK_ON_BLOCK){
+        context.beginPath();
+        context.fillStyle = 'rgba(255,255,255,0.2)';
+        context.arc(px + BLOCK_SIZE/2, py + BLOCK_SIZE/2 -5, BLOCK_SIZE/6, 0, Math.PI * 2);
+        context.fill();    
+        const rectWidthUpper = 4;
+        const rectWidthLower = 8;    
+        const rectHeight = BLOCK_SIZE /3 ;
+        context.beginPath();
+        context.moveTo(px + BLOCK_SIZE/2-rectWidthUpper/2, py + BLOCK_SIZE/2);
+        context.lineTo(px + BLOCK_SIZE/2-rectWidthLower/2, py + BLOCK_SIZE/2+rectHeight);
+        context.lineTo(px + BLOCK_SIZE/2+rectWidthLower/2, py + BLOCK_SIZE/2+rectHeight);
+        context.lineTo(px + BLOCK_SIZE/2+rectWidthUpper/2, py + BLOCK_SIZE/2);
+        context.closePath();
+        context.fill();    
+    }
 }
 
 function drawPointer(context, x, y, pointerType, keyRotation, pixelOffset = 0, yAnimateOffset = 0) {
